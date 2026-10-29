@@ -1,0 +1,250 @@
+{
+  "collected_at": "2026-10-29T18:30:36Z",
+  "tool": "algovoi-ube evidence collector",
+  "environment": {
+    "python": "3.12.10",
+    "platform": "Windows-11-10.0.22631-SP0"
+  },
+  "findings": [
+    {
+      "id": "F1",
+      "claim": "The published NTI-1 conformance chain recomputes exactly under its documented formula",
+      "source": "https://github.com/abisheakp197/nti-spec/blob/main/conformance/audit_log.json",
+      "source_sha256": "3c976c1976f32f7bfe3f3b05a84f5a0106016c8b780252f45b3c635d5a706a9a",
+      "source_bytes": 967,
+      "events": [
+        {
+          "event": 1,
+          "stored_hash": "cc1efb8c29b625c447146d03a46c75128fe96dd813172165e8f5bf1733003bec",
+          "recomputed_hash": "cc1efb8c29b625c447146d03a46c75128fe96dd813172165e8f5bf1733003bec",
+          "matches": true,
+          "formula": "sha256(':'.join([event_id, agent_id, request_hash, decision, reason, timestamp, parent_hash]))",
+          "parent_links_ok": true
+        },
+        {
+          "event": 2,
+          "stored_hash": "46be51773f9c951cee710b5bc97ff38f8a0ba2dac48b35be075608d97502535e",
+          "recomputed_hash": "46be51773f9c951cee710b5bc97ff38f8a0ba2dac48b35be075608d97502535e",
+          "matches": true,
+          "formula": "sha256(':'.join([event_id, agent_id, request_hash, decision, reason, timestamp, parent_hash]))",
+          "parent_links_ok": true
+        }
+      ],
+      "chain_verifies": true,
+      "verdict": "confirmed"
+    },
+    {
+      "id": "F2",
+      "claim": "Neither published request_hash is the hash of an action: event 1 is exactly SHA-256 of the empty string and event 2 is a rearrangement of the same bytes, so the audit record does not say what was evaluated",
+      "source": "https://github.com/abisheakp197/nti-spec/blob/main/conformance/audit_log.json",
+      "sha256_of_empty_string": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "events": [
+        {
+          "event": 1,
+          "request_hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "equals_sha256_of_empty_string": true,
+          "is_a_rearrangement_of_sha256_empty": true,
+          "hex_length": 64
+        },
+        {
+          "event": 2,
+          "request_hash": "f4c8996fb92427ae41e4649b934ca495991b7852b855e3b0c44298fc1c149afb",
+          "equals_sha256_of_empty_string": false,
+          "is_a_rearrangement_of_sha256_empty": true,
+          "hex_length": 64
+        }
+      ],
+      "example_of_this_harness_hashing_a_real_request": "260e51cb0eebceb863d13ce9ff60fdd29aa0696c9bc98e8c8c9ff0ffee75d565",
+      "difference_demonstrated": true,
+      "no_published_hash_is_of_a_real_request": true,
+      "severity": "the chain still verifies, so this is a weakness in the example rather than a break in the scheme",
+      "verdict": "confirmed"
+    },
+    {
+      "id": "F3",
+      "claim": "Editing any single field of a past event breaks chain verification",
+      "method": "mutate one field of event 1 by appending 'x', re-verify",
+      "events": [
+        {
+          "field_edited": "event_id",
+          "verification_failed": true
+        },
+        {
+          "field_edited": "agent_id",
+          "verification_failed": true
+        },
+        {
+          "field_edited": "request_hash",
+          "verification_failed": true
+        },
+        {
+          "field_edited": "decision",
+          "verification_failed": true
+        },
+        {
+          "field_edited": "reason",
+          "verification_failed": true
+        },
+        {
+          "field_edited": "timestamp",
+          "verification_failed": true
+        },
+        {
+          "field_edited": "parent_hash",
+          "verification_failed": true
+        },
+        {
+          "field_edited": "event_hash",
+          "verification_failed": true
+        }
+      ],
+      "all_detected": true,
+      "verdict": "confirmed"
+    },
+    {
+      "id": "F4",
+      "claim": "NTI-1's reference implementation ube-foundation is PolyForm Shield, not an open licence, so it cannot be vendored into an Apache-2.0 harness",
+      "source": "https://pypi.org/pypi/ube-foundation/json (classifier and description observed)",
+      "observed": "PolyForm Shield 1.0.0 named in the project description badge",
+      "consequence": "This repository talks to a target over HTTP or imports it if present, and vendors none of its code.",
+      "verdict": "confirmed"
+    },
+    {
+      "id": "F5",
+      "claim": "The AlgoVoi Keystone fully answers 3 of 7 NTI-1 requirements, partly 2, and not at all 2",
+      "method": "derived from src/algovoi_ube/keystone_mapping.py, itself written against docs.algovoi.co.uk/keystone and the NTI-1 text",
+      "keystone_source": "https://docs.algovoi.co.uk/keystone",
+      "pillars": [
+        {
+          "pillar": "3.1",
+          "nti_requirement": "Principal-bound identity; actions signed by a key delegated by the principal",
+          "keystone_stage": "passport_ref",
+          "coverage": "full",
+          "note": "The Agent Passport is the identity tier of the keystone chain, and the passport_ref is a load-bearing field of every downstream reference, so identity is bound into the decision rather than attached to it.",
+          "gap": ""
+        },
+        {
+          "pillar": "3.2",
+          "nti_requirement": "Every action evaluated against policy; capability caveats Expires, MaxExecutions, ValueLimit, PathRestricted; deny must not execute",
+          "keystone_stage": "mandate_ref, policy_bound_ref",
+          "coverage": "full",
+          "note": "The mandate is authority and the policy binding fixes the policy in force. Because policy_bound_ref is hashed into decision_ref, an action cannot be authorised under one policy and executed under another.",
+          "gap": ""
+        },
+        {
+          "pillar": "3.3",
+          "nti_requirement": "BFT consensus for high-value multi-agent actions; threshold signature collection over (voter_id, request_id, decision, outcome_hash, signature)",
+          "keystone_stage": "none",
+          "coverage": "none",
+          "note": "Keystone composes one chain per action and does not define a voting or threshold protocol. This is the one pillar it does not answer.",
+          "gap": "Needs a threshold signature layer above the keystone: collect votes over the decision_ref, then require the threshold before the execution tier is reached."
+        },
+        {
+          "pillar": "3.4",
+          "nti_requirement": "Tamper-evident audit trail, SHA-256 chained, every evaluated action recorded with decision and reason",
+          "keystone_stage": "decision_ref, execution_ref",
+          "coverage": "full",
+          "note": "decision_ref records what was authorised and execution_ref records what actually happened and binds back to that decision. A verifier can confirm the executed action is consistent with the decision rather than merely correlated with it.",
+          "gap": ""
+        },
+        {
+          "pillar": "3.5",
+          "nti_requirement": "State and audit trail persist across restarts with self-verifying integrity; exportable and importable",
+          "keystone_stage": "keystone chain plus trust_query_ref",
+          "coverage": "partial",
+          "note": "The chain is content-addressed, so reloading it re-verifies every link by recomputation with no issuer contact. Keystone does not itself define a persistence store or an export format.",
+          "gap": "Needs a store of record and an export envelope; the chain verifies independently once landed."
+        },
+        {
+          "pillar": "6.1",
+          "nti_requirement": "Fail-closed on unreachable or non-authoritative registry; incomplete_check with reason tryLater, not_authoritative or internal_error",
+          "keystone_stage": "none",
+          "coverage": "partial",
+          "note": "Keystone provides the *evidence* that authority lapsed, because the mandate and revocation state carry their own references and validity windows. It does not define the runtime halt behaviour.",
+          "gap": "The halt is a runtime decision, which this repo implements. The clean split is: Keystone proves the state, the sidecar acts on it."
+        },
+        {
+          "pillar": "7",
+          "nti_requirement": "Interoperability with the ASL Conformance Kit over AF_UNIX sockets",
+          "keystone_stage": "none",
+          "coverage": "none",
+          "note": "Keystone is transport-agnostic and says nothing about sandboxing.",
+          "gap": "Unchanged by any keystone decision; this is an adapter concern."
+        }
+      ],
+      "flow": [
+        {
+          "step": "identity",
+          "keystone_call": "passport_ref from the Agent Passport tier",
+          "produces": "passport_ref"
+        },
+        {
+          "step": "authority",
+          "keystone_call": "mandate_ref from the Payment Mandate tier",
+          "produces": "mandate_ref"
+        },
+        {
+          "step": "policy",
+          "keystone_call": "policy_bound_ref from the Policy Binding tier",
+          "produces": "policy_bound_ref"
+        },
+        {
+          "step": "consensus",
+          "keystone_call": "not in Keystone; a threshold signing layer over decision_ref",
+          "produces": "vote set (external)"
+        },
+        {
+          "step": "decision",
+          "keystone_call": "build_keystone(verdict=...) produces decision_ref",
+          "produces": "decision_ref"
+        },
+        {
+          "step": "execution",
+          "keystone_call": "build_keystone(outcome=...) produces execution_ref",
+          "produces": "execution_ref"
+        },
+        {
+          "step": "verdict",
+          "keystone_call": "trust_query_ref",
+          "produces": "trust_query_ref"
+        }
+      ],
+      "counts": {
+        "total": 7,
+        "full": 3,
+        "partial": 2,
+        "none": 2
+      },
+      "verdict": "confirmed"
+    },
+    {
+      "id": "F6",
+      "claim": "An incomplete_check receipt cannot be constructed with an unclassified reason, so a failure cannot masquerade as a pass",
+      "legal_reasons": [
+        "tryLater",
+        "not_authoritative",
+        "internal_error"
+      ],
+      "attempted_illegal_reasons": [
+        {
+          "reason": "unknown",
+          "accepted": false
+        },
+        {
+          "reason": "",
+          "accepted": false
+        },
+        {
+          "reason": "timeout",
+          "accepted": false
+        },
+        {
+          "reason": "error",
+          "accepted": false
+        }
+      ],
+      "all_illegal_refused": true,
+      "verdict": "confirmed"
+    }
+  ]
+}

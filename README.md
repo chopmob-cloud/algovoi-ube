@@ -46,21 +46,36 @@ python conformance/run.py --self-test
 No runtime dependencies. The harness is stdlib only, so it runs anywhere Python
 3.10 or newer does.
 
-## The one finding worth knowing first
+## The evidence
 
-Both audit schemes are real and both recompute. The difference is what they
-prove.
+**Every claim in this repository is generated, not written.** `evidence/EVIDENCE.md`
+is produced by `python evidence/collect.py`, and each finding records the SHA-256
+of the exact input it was computed from, so a claim is tied to a snapshot rather
+than to a moment. `evidence/evidence.json` holds the same findings in machine
+readable form. Re-run the collector and either the same verdicts come out or the
+claim was wrong.
 
-The NTI-1 conformance example chains
-`sha256(":".join([event_id, agent_id, request_hash, decision, reason, timestamp, parent_hash]))`.
-Every stored hash recomputes exactly under that formula, and the published
-example is included in `vectors/` so this is demonstrated rather than asserted.
+Six findings, all currently confirmed:
 
-One weakness in the published example: event 1's `request_hash` is
-`e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855`, which is
-the SHA-256 of the empty string. No action was ever hashed, so the record does
-not say what was evaluated. The harness hashes the canonical form of the actual
-request instead, and there is a test for that difference.
+| ID | Finding | Verdict |
+| F1 | The published NTI-1 conformance chain recomputes exactly under its documented formula | confirmed |
+| F2 | Neither published `request_hash` is the hash of an action, so the record does not say what was evaluated | confirmed |
+| F3 | Editing any single field of a past event breaks chain verification | confirmed |
+| F4 | `ube-foundation` is PolyForm Shield, so it cannot be vendored into an Apache-2.0 harness | confirmed |
+| F5 | Keystone fully answers 3 of 7 NTI-1 requirements, partly 2, not at all 2 | confirmed |
+| F6 | An `incomplete_check` cannot be built with an unclassified reason | confirmed |
+
+The collector refutes its own claims when they do not hold. F2 was originally
+written one way, the collector refuted it, and the claim was tightened to what
+the data actually shows. That is the point of generating evidence rather than
+asserting it.
+
+## What this repository does not claim
+
+It does not say NTI-1 is wrong. F1 shows their hashes are correct and their
+chain is sound. F2 and F3 describe a weakness in one published example and the
+strength of the tamper detection respectively. F5 is the honest measure of what
+Keystone can and cannot fulfil, including the one MUST it does not answer.
 
 ## Keystone coverage against NTI-1
 
