@@ -100,8 +100,8 @@ problems and neither chain is a superset of the other.
 
 ## The question the thread left open
 
-Asked when a delegation's status should be judged: at grant time, at
-invocation, or at completion. `boundary.py` does not pretend to settle it. It
+A question raised on the thread and still open: when should a delegation's
+status be judged, at grant time, at invocation, or at completion? `boundary.py` does not pretend to settle it. It
 makes the choice explicit, records it on every receipt, and shows what each
 choice costs.
 
