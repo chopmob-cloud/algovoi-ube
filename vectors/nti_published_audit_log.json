@@ -1,0 +1,22 @@
+[
+  {
+    "event_id": "evt-00000000-0000-0000-0000-000000000001",
+    "agent_id": "agent-001-prod",
+    "request_hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "decision": "Allow",
+    "reason": "Action permitted under capability cap-fund-transfer",
+    "timestamp": "2026-02-01T12:00:00Z",
+    "parent_hash": "0000000000000000000000000000000000000000000000000000000000000000",
+    "event_hash": "cc1efb8c29b625c447146d03a46c75128fe96dd813172165e8f5bf1733003bec"
+  },
+  {
+    "event_id": "evt-00000000-0000-0000-0000-000000000002",
+    "agent_id": "agent-001-prod",
+    "request_hash": "f4c8996fb92427ae41e4649b934ca495991b7852b855e3b0c44298fc1c149afb",
+    "decision": "Deny",
+    "reason": "Value limit exceeded",
+    "timestamp": "2026-02-01T12:05:00Z",
+    "parent_hash": "cc1efb8c29b625c447146d03a46c75128fe96dd813172165e8f5bf1733003bec",
+    "event_hash": "46be51773f9c951cee710b5bc97ff38f8a0ba2dac48b35be075608d97502535e"
+  }
+]

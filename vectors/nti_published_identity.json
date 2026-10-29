@@ -1,0 +1,7 @@
+{
+  "agent_id": "agent-001-prod",
+  "algorithm": "CRYSTALS-Dilithium5",
+  "public_key_pem": "-----BEGIN PUBLIC KEY-----\nMFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAE...dilithium5_key_data...\n-----END PUBLIC KEY-----",
+  "revocation_status": "active",
+  "created_at": "2026-01-01T00:00:00Z"
+}

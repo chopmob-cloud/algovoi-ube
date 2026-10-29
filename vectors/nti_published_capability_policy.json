@@ -1,0 +1,16 @@
+{
+  "policy_id": "pol-sec-101",
+  "agent_id": "agent-001-prod",
+  "granted_capabilities": [
+    {
+      "capability_id": "cap-fund-transfer",
+      "action_type": "transfer_funds",
+      "caveats": {
+        "expires": 1800000000,
+        "value_limit": 50000,
+        "max_executions": 100,
+        "path_restricted": ["/api/v1/payments/*"]
+      }
+    }
+  ]
+}
