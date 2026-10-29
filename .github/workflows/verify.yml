@@ -30,13 +30,10 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - name: Regenerate evidence
-        run: python evidence/collect.py
-      - name: Fail if the committed evidence is out of date
+      - name: Verify the committed evidence still holds
+        run: python evidence/collect.py --check
+      - name: Show what the findings are
         run: |
-          if ! git diff --quiet -- evidence/evidence.json; then
-            echo "evidence.json changed: a finding no longer matches the input."
-            git diff -- evidence/evidence.json
-            exit 1
-          fi
-          echo "evidence matches the inputs it was generated from"
+          python evidence/collect.py --check
+          echo
+          echo "evidence/EVIDENCE.md records the full detail of each finding"

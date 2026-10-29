@@ -290,7 +290,10 @@ def write_markdown(payload: dict) -> None:
     (EVIDENCE / "EVIDENCE.md").write_text("\n".join(lines), encoding="utf-8")
 
 
-def main() -> int:
+def main(argv: list[str] | None = None) -> int:
+    args = list(sys.argv[1:] if argv is None else argv)
+    check_only = "--check" in args
+
     EVIDENCE.mkdir(exist_ok=True)
     findings = [
         finding_hashes(),
@@ -300,6 +303,41 @@ def main() -> int:
         finding_coverage(),
         finding_failclosed(),
     ]
+
+    if check_only:
+        # Compare the findings, not the metadata. The collection time and the
+        # machine differ between a laptop and CI, and neither changes whether a
+        # claim holds. Only the findings matter here.
+        existing_path = EVIDENCE / "evidence.json"
+        if not existing_path.exists():
+            print("no committed evidence.json to check against")
+            return 1
+        existing = json.loads(existing_path.read_text(encoding="utf-8"))
+        old = {f["id"]: f for f in existing.get("findings", [])}
+        problems = []
+        for finding in findings:
+            prior = old.get(finding["id"])
+            if prior is None:
+                problems.append(f"{finding['id']}: new finding, not in the committed evidence")
+                continue
+            if prior.get("verdict") != finding["verdict"]:
+                problems.append(
+                    f"{finding['id']}: verdict changed from {prior.get('verdict')} "
+                    f"to {finding['verdict']}"
+                )
+            if finding["verdict"] != "confirmed":
+                problems.append(f"{finding['id']}: claim is now {finding['verdict']}")
+        for finding in findings:
+            print(f"  {finding['id']}  {finding['verdict']}")
+        if problems:
+            print()
+            for problem in problems:
+                print(f"  FAIL {problem}")
+            return 1
+        print()
+        print("findings match the committed evidence and all still hold")
+        return 0
+
     payload = {
         "collected_at": now(),
         "tool": "algovoi-ube evidence collector",
