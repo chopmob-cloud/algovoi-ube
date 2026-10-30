@@ -263,6 +263,40 @@ That defect is worth stating plainly because it is the useful part: publishing a
 harness that checks other implementations is easy to do while leaving a hole in
 the place the argument is actually about.
 
+## Two more holes, found in validation and closed
+
+An independent security review of this harness on 30 October 2026 found two more
+places where a property the harness claims to enforce could be bypassed. Both are
+recorded here in the same spirit as the missing edge above, because the useful
+part of publishing a checker is saying where the checker was itself wrong. Each
+was reproduced before the change and is now pinned by a regression test that
+fails against the old code and passes against the new.
+
+**An empty `evidence` basis reached RESUMED.** `resume.py` validated the restore
+evidence only when an evidence object was present, so a basis of `evidence`
+carrying no evidence at all constructed cleanly and resumed on the signature
+alone, reporting the restore condition as "verified in full" while nothing had
+been checked. That is exactly the signature-only resume F8 exists to refuse,
+wearing the evidence label; the T-7.1 check missed it because it exercises only a
+`None` basis, not an empty-but-present one. An evidence basis now requires a
+complete evidence object at construction, and an empty one is refused before it
+can reach the decision layer or the lifecycle.
+
+**A non-membership proof was forgeable for a live capability.** The revocation
+registry's `verify_absence` checked that a proof's predecessor and successor sat
+under the root and bracketed the capability by hash, but not that they were
+*adjacent* leaves. Two live leaves can bracket a third, so a proof naming
+non-adjacent neighbours could present a still-live capability as absent and forge
+its revocation status, the opposite of the soundness F16 relies on. Adjacency is
+now enforced from the Merkle-verified indices: two neighbours must be
+consecutive, a successor-only proof must point at the first leaf, and a
+predecessor-only proof at the last. Honest proofs are unaffected; the forged one
+is refused.
+
+Neither fix adds, removes or changes a state, a wire value or a public finding.
+They close the gap between what the harness enforced and what it already claimed
+to, which is the only thing a conformance harness cannot afford to get wrong.
+
 ## Validated on VM2
 
 The wheel is built and validated in a clean-room Docker container on VM2, with no
