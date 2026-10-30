@@ -113,10 +113,86 @@ asserting it.
 
 ## What this repository does not claim
 
-It does not say NTI-1 is wrong. F1 shows their hashes are correct and their
-chain is sound. F2 and F3 describe a weakness in one published example and the
-strength of the tamper detection respectively. F5 is the honest measure of what
-Keystone can and cannot fulfil, including the one MUST it does not answer.
+It does not say NTI-1 is unsound. F1 shows their hashes are correct and their
+chain is sound, and F3 shows the tamper detection works. The list above is not a
+verdict on the design; it is the set of gaps that stop an implementer from
+checking their work against it, which is a different and more useful criticism.
+F5 is the honest measure of what Keystone can and cannot fulfil, including the one
+MUST it does not answer.
+
+## What NTI needs to resolve
+
+This harness found gaps in the standard's own material that stop an implementer
+from checking their work against it. They are listed here rather than left in the
+evidence table, because a finding buried in a table does not reach the people who
+can act on it.
+
+Their transition contract already tracks seven open items, OPEN-1 to OPEN-7, which
+is to their credit and makes the useful distinction possible: four of the gaps
+below are not on that list at all. Those are the ones worth raising.
+
+**The published `request_hash` is not the hash of an action.** F2, and not on their
+open list. In the published conformance chain, event 1's `request_hash` is exactly
+the SHA-256 of the empty string, and event 2's is a rearrangement of those same
+bytes. The chain verifies, and it does not say what was evaluated. Regenerate the
+example before anyone copies it, because an audit record that verifies while
+recording nothing is worse than no record.
+
+**No canonicalisation scheme is named.** Not on their open list, and absent from
+both NTI-1 and the contract. A signature needs deterministic bytes, and nothing says
+how a receipt is serialised, so two compliant implementations produce different
+bytes for the same receipt and neither verifies the other's. This harness uses
+RFC 8785, implemented and tested in `canonical.py` (F14), because it is the only such
+scheme with published test vectors. Naming one is a one-line fix with a large effect.
+
+**No signature, receipt or negative vectors are published.** Not on their open list.
+The `conformance` directory holds an audit log, a README and a validator. There is no
+ML-DSA test vector, no example receipt and no negative vector, so an implementer
+cannot check their signer or their receipt against anything. The harness has to build
+its own, which means it is testing our reading of the standard rather than the
+standard.
+
+**The automated grader has no authority model.** Not on their open list. Issue 21 asks
+for a grader holding authority to accept risk, and does not say who issues that
+authority, for which policies, up to what value, until when, or how it is withdrawn.
+Left undefined, every implementation invents its own and no two are comparable.
+`mandate.py` closes the gap here (F18) as a proposal, not as a reading of the text.
+
+**Section 6 has no tests.** The five testable requirements are T-1.1 to T-5.1, and
+they cover identity, governance, consensus, audit and persistence. The entire halt
+and revocation machine, including the fail-closed rule in 6.1, sits in section 6 and
+appears in none of them, so an implementation can pass every published test while its
+resume path does nothing. Their OPEN-1 records that section 1.1 is untestable for a
+related reason, so the shape of the problem is already known; the five published
+tests are where it bites.
+
+**`resume_basis` is proposed, not agreed.** Their own v0.1.4 marks the field and its
+two exemption boundaries as proposed, with no fingerprint. The boundaries are the load
+bearing part: an exemption must not cover `authority_revoked`, because revocation is
+the issuing authority's decision, and must not cover `authority_not_determined`,
+because a signature cannot convert "we do not know" into "we know". Until it is
+settled, an accepted risk and a restored condition produce identical records.
+
+**The reference implementation cannot be checked by an open suite.** F4. `ube-foundation`
+is PolyForm Shield, source available but not open, so an Apache-2.0 harness cannot
+vendor or link it. Their LGD-MedAI demo is Apache-2.0 and runnable in one command,
+which is genuinely useful, but it demonstrates the state machine rather than the
+sidecar boundary, so there is still no runnable NTI target to probe. Either relicense
+the reference or publish a runnable sidecar, otherwise the standard's own example sits
+outside the reach of its own test suite.
+
+**The signing key has no lifecycle.** Already logged as OPEN-5, so this is their own
+finding rather than ours, and it is unowned and unscheduled. It matters more than its
+one-line entry suggests: the whole architecture rests on the agent never holding the
+key, and a compromise of that one key invalidates every receipt at once. Their OPEN-3
+has the same shape for timestamps, where the replay claim depends on a source nobody
+has picked yet.
+
+One correction we owe them in return. The contract is careful to record that
+Dilithium5 equals ML-DSA-87 as an inference from the round-3 parameter sets, since
+FIPS 204 does not use the Dilithium names. This repository says ML-DSA-87 throughout
+and the measured sizes are the FIPS 204 ones, but the equivalence is an inference
+rather than a quotation, and it is recorded here as such rather than stated as fact.
 
 ## Keystone coverage against NTI-1
 
