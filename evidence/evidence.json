@@ -1,5 +1,5 @@
 {
-  "collected_at": "2026-10-30T20:42:57Z",
+  "collected_at": "2026-10-30T22:14:46Z",
   "tool": "algovoi-ube evidence collector",
   "environment": {
     "python": "3.12.10",
@@ -380,7 +380,7 @@
     {
       "id": "F12",
       "claim": "A receipt that purports to exempt a revocation or an undetermined authority cannot be expressed: the schema admits only policy_violation, the constructor refuses the others, and the grader will not sign them",
-      "schema_source_sha256": "671faad963c2b21d59828106ab6c5182b1e3cf2e0625ad506fbd84af81eed24d",
+      "schema_source_sha256": "524e8418f59cad5f66f410a1eb55756cb76eee8ddf8a9740eba22df019e1f901",
       "schema_permitted_causes": [
         "policy_violation"
       ],
@@ -405,6 +405,7 @@
         "wire_value": "deny",
         "reason": "the receipt signature did not verify, so the pause stands"
       },
+      "tampered_refused_on_the_signature": true,
       "verdict": "confirmed"
     },
     {
@@ -464,7 +465,7 @@
       "method": "sign a real payload in the Rust core, verify it, tamper with it, and attempt an empty payload",
       "measured": {
         "algorithm": "ML-DSA-87",
-        "key_id": "e2c0adf306bc9d79",
+        "key_id": "8d12ed103af8b380",
         "verify_key_bytes": 2592,
         "signature_bytes": 4627,
         "core": "C:\\algo\\platform\\algovoi-ube\\rust\\nti-signer\\target\\release\\nti-signer.exe"

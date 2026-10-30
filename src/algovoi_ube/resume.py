@@ -211,11 +211,62 @@ class ResumeDecision:
         }
 
 
+def _parse_instant(value: str):
+    """Parse an ISO 8601 instant, or None when it cannot be read."""
+    if not value:
+        return None
+    text = value.strip().replace("Z", "+00:00")
+    try:
+        from datetime import datetime
+
+        parsed = datetime.fromisoformat(text)
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        from datetime import timezone
+
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed
+
+
+def _window_refusal(valid_from: str, valid_until: str, now) -> str:
+    """Return a refusal reason when ``now`` is outside the window, else "".
+
+    A window that is present but unreadable is refused rather than ignored: an
+    unparseable expiry cannot be shown to be in the future, and treating it as
+    valid is how a required field becomes decoration.
+    """
+    start = _parse_instant(valid_from)
+    end = _parse_instant(valid_until)
+    if valid_until and end is None:
+        return (
+            "the validity window cannot be read, so the resume cannot be shown to "
+            "fall inside it"
+        )
+    if valid_from and start is None:
+        return (
+            "the start of the validity window cannot be read, so the resume cannot "
+            "be shown to fall inside it"
+        )
+    if end is not None and now > end:
+        return (
+            f"the validity window ended at {valid_until}, before the resume was "
+            "evaluated; an expired window is not evidence that the condition holds now"
+        )
+    if start is not None and now < start:
+        return (
+            f"the validity window does not begin until {valid_from}, so the resume "
+            "is early and the evidence does not yet apply"
+        )
+    return ""
+
+
 def decide_resume(
     *,
     signature_valid: bool,
     basis: ResumeBasis | None,
     delegation_state: str = "",
+    now=None,
 ) -> ResumeDecision:
     """Decide whether a resume token may reach RESUMED.
 
@@ -224,7 +275,20 @@ def decide_resume(
     signature verification cannot tell a restored condition from an accepted
     risk. That is deliberately stricter than the example the thread started
     from.
+
+    ``delegation_state`` is what the *receiver* knows about the delegation. It
+    outranks whatever the basis reports about itself: a document asserting its own
+    delegation is fine is not evidence, and when the two disagree the resume is
+    refused rather than resolved in the sender's favour.
+
+    ``now`` is injected so an expiry check is testable; it defaults to the current
+    instant in UTC.
     """
+    if now is None:
+        from datetime import datetime, timezone
+
+        now = datetime.now(timezone.utc)
+
     if not signature_valid:
         return ResumeDecision(
             allowed=False,
@@ -243,19 +307,51 @@ def decide_resume(
         )
 
     # The delegation may already be gone. A receiver that checks only the
-    # signature will resume into a revoked authority, so check the state the
-    # basis itself reports.
-    state = (basis.state_at_resume or delegation_state or "").strip().upper()
+    # signature will resume into a revoked authority. What the receiver knows
+    # outranks what the basis says about itself, and a contradiction is refused
+    # rather than resolved by precedence: letting the submitted value win is how
+    # a basis asserting ACTIVE resumes into a delegation the receiver knows is
+    # REVOKED.
+    claimed = (basis.state_at_resume or "").strip().upper()
+    known = (delegation_state or "").strip().upper()
+    if claimed and known and claimed != known:
+        return ResumeDecision(
+            allowed=False,
+            wire_value="revoked",
+            reason=(
+                f"the basis reports the delegation is {claimed.lower()} while the "
+                f"receiver reports {known.lower()}; a claim that contradicts the "
+                "verifier's own knowledge is not evidence, so the action stays paused"
+            ),
+            receipt=basis.as_dict(),
+        )
+    state = known or claimed
     if state in {"REVOKED", "EXPIRED", "SUSPENDED"}:
         return ResumeDecision(
             allowed=False,
             wire_value="revoked",
             reason=(
-                f"the basis reports the delegation is {state.lower()} at resume time, "
+                f"the delegation is {state.lower()} at resume time, "
                 "so the resume is declined rather than taken on the signature"
             ),
             receipt=basis.as_dict(),
         )
+
+    # An evidence basis asserts that the registered restore condition was verified
+    # in full, which is a claim about a window. Checking the fields exist and
+    # never comparing them to a clock makes valid_until decoration.
+    if basis.basis == Basis.EVIDENCE.value and basis.evidence is not None:
+        refusal = _window_refusal(
+            basis.evidence.valid_from, basis.evidence.valid_until, now
+        )
+        if refusal:
+            return ResumeDecision(
+                allowed=False,
+                wire_value="pause",
+                reason=refusal,
+                receipt=basis.as_dict(),
+            )
+
 
     try:
         receipt = basis.as_dict()

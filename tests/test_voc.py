@@ -81,21 +81,24 @@ def grader(**kwargs) -> AgentGrader:
     )
 
 
-def signed_receipt(g=None) -> dict:
+def signed_receipt(g=None, *, halt_id: str = "", valid_until: str = "2026-10-30T18:00:00Z",
+                   request_id: str = "req-42",
+                   policy_id: str = "pol-value-limit") -> dict:
     g = g or grader()
     return g.sign_exemption(
         receipt_id="r-1",
         issued_at="2026-10-30T16:00:00Z",
-        request_id="req-42",
-        policy_id="pol-value-limit",
+        request_id=request_id,
+        policy_id=policy_id,
         halt_cause="policy_violation",
         reason="release window, value limit accepted by on-call manager",
         delegation_id="d-42",
         principal_id="principal-acme",
-        valid_until="2026-10-30T18:00:00Z",
+        valid_until=valid_until,
         evidence_refs=["ticket-991"],
         chain_event_hash="a" * 64,
         value=500,
+        halt_id=halt_id,
     )
 
 
@@ -260,10 +263,72 @@ def test_a_receipt_signed_with_another_key_does_not_verify():
 
 
 def test_a_paused_action_resumes_on_a_valid_receipt():
-    paused = evaluate(mode="VOC", policy_allows=False)
-    result = resume_on_exemption(outcome=paused, receipt=signed_receipt(), signer=signer())
+    paused = evaluate(mode="VOC", policy_allows=False,
+                      request_id="req-42", policy_id="pol-value-limit")
+    receipt = signed_receipt(halt_id=paused.halt_id, valid_until="2099-12-31T00:00:00Z")
+    result = resume_on_exemption(outcome=paused, receipt=receipt, signer=signer())
     assert result.decision is Decision.RESUME
     assert result.wire_value == "resume"
+
+
+def test_a_receipt_for_another_request_does_not_resume_this_pause():
+    """The signature proves who signed, not what for."""
+    paused = evaluate(mode="VOC", policy_allows=False,
+                      request_id="req-42", policy_id="pol-value-limit")
+    receipt = signed_receipt(halt_id=paused.halt_id, valid_until="2099-12-31T00:00:00Z",
+                             request_id="req-OTHER")
+    result = resume_on_exemption(outcome=paused, receipt=receipt, signer=signer())
+    assert result.decision is Decision.DENY
+    assert "bound to request" in result.reason
+
+
+def test_a_receipt_for_another_policy_does_not_resume_this_pause():
+    # The pause is on a different policy than the receipt names. Signing outside
+    # the mandate is refused by the mandate, so the receipt is legitimately
+    # signed for its own policy and then presented at the wrong pause.
+    paused = evaluate(mode="VOC", policy_allows=False,
+                      request_id="req-42", policy_id="pol-OTHER")
+    receipt = signed_receipt(halt_id=paused.halt_id, valid_until="2099-12-31T00:00:00Z")
+    result = resume_on_exemption(outcome=paused, receipt=receipt, signer=signer())
+    assert result.decision is Decision.DENY
+    assert "bound to policy" in result.reason
+
+
+def test_a_receipt_cannot_be_replayed_onto_a_later_halt_of_the_same_request():
+    first = evaluate(mode="VOC", policy_allows=False,
+                     request_id="req-42", policy_id="pol-value-limit")
+    receipt = signed_receipt(halt_id=first.halt_id, valid_until="2099-12-31T00:00:00Z")
+    assert resume_on_exemption(outcome=first, receipt=receipt,
+                               signer=signer()).decision is Decision.RESUME
+    second = evaluate(mode="VOC", policy_allows=False,
+                      request_id="req-42", policy_id="pol-value-limit")
+    assert second.halt_id != first.halt_id, "each pause must get its own halt id"
+    result = resume_on_exemption(outcome=second, receipt=receipt, signer=signer())
+    assert result.decision is Decision.DENY
+    assert "does not name this halt" in result.reason
+
+
+def test_a_receipt_with_no_halt_binding_never_resumes():
+    paused = evaluate(mode="VOC", policy_allows=False,
+                      request_id="req-42", policy_id="pol-value-limit")
+    receipt = signed_receipt(valid_until="2099-12-31T00:00:00Z")  # no halt_id
+    result = resume_on_exemption(outcome=paused, receipt=receipt, signer=signer())
+    assert result.decision is Decision.DENY
+    assert "does not name this halt" in result.reason
+
+
+def test_an_expired_exemption_does_not_resume():
+    from datetime import datetime, timezone
+
+    paused = evaluate(mode="VOC", policy_allows=False,
+                      request_id="req-42", policy_id="pol-value-limit")
+    receipt = signed_receipt(halt_id=paused.halt_id, valid_until="2020-01-02T00:00:00Z")
+    result = resume_on_exemption(
+        outcome=paused, receipt=receipt, signer=signer(),
+        now=datetime(2026, 10, 30, 21, 0, tzinfo=timezone.utc),
+    )
+    assert result.decision is Decision.DENY
+    assert "expired" in result.reason
 
 
 def test_a_tampered_receipt_does_not_resume():
@@ -348,6 +413,19 @@ def test_the_produced_receipt_satisfies_the_published_schema():
     assert allowed_causes == ["policy_violation"], (
         "the schema must not admit a cause an exemption cannot cover"
     )
+
+
+def test_the_schema_requires_a_halt_binding():
+    """A receipt that cannot name its halt cannot be used, so the schema says so."""
+    spec = SCHEMA["properties"]["halt_id"]
+    assert spec["type"] == "string"
+    assert spec.get("minLength") == 1
+    assert "halt_id" in SCHEMA["required"]
+
+    paused = evaluate(mode="VOC", policy_allows=False,
+                      request_id="req-42", policy_id="pol-value-limit")
+    receipt = signed_receipt(halt_id=paused.halt_id, valid_until="2099-12-31T00:00:00Z")
+    assert receipt["halt_id"] == paused.halt_id
 
 
 def test_the_schema_admits_no_extra_properties():

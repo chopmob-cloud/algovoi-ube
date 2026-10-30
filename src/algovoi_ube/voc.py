@@ -43,6 +43,7 @@ from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
 from typing import Any, Callable
+from uuid import uuid4
 
 from .canonical import canonicalize
 
@@ -199,6 +200,9 @@ class JustificationReceipt:
     evidence_refs: list[str] = field(default_factory=list)
     chain_event_hash: str = ""
     receipt_version: str = "1.0"
+    # Which halt this receipt answers. Without it a receipt signed for one pause
+    # can be presented at another, including a later pause of the same request.
+    halt_id: str = ""
 
     def __post_init__(self) -> None:
         if self.halt_cause in EXEMPTION_DOES_NOT_COVER:
@@ -249,6 +253,7 @@ class JustificationReceipt:
             },
             "validity": {"not_after": self.valid_until},
             "chain_event_hash": self.chain_event_hash,
+            "halt_id": self.halt_id,
         }
 
     def signing_input(self) -> bytes:
@@ -351,6 +356,7 @@ class AgentGrader:
         evidence_refs: list[str] | None = None,
         chain_event_hash: str = "",
         value: int = 0,
+        halt_id: str = "",
     ) -> dict:
         if halt_cause in EXEMPTION_DOES_NOT_COVER:
             self._log.append(
@@ -396,6 +402,7 @@ class AgentGrader:
             valid_until=valid_until,
             evidence_refs=list(evidence_refs or []),
             chain_event_hash=chain_event_hash,
+            halt_id=halt_id,
         )
         signature = self.signer.sign(receipt.signing_input())
         self._signed += 1
@@ -446,6 +453,7 @@ def verify_receipt(receipt: dict, signer: HmacSigner) -> bool:
             evidence_refs=list(receipt["justification"].get("evidence_refs") or []),
             chain_event_hash=receipt.get("chain_event_hash", ""),
             receipt_version=receipt.get("receipt_version", "1.0"),
+            halt_id=receipt.get("halt_id", ""),
         )
     except (KeyError, ReceiptRefused):
         return False
@@ -465,6 +473,13 @@ class Outcome:
     wire_value: str
     receipt: dict | None = None
     paused: bool = False
+    # What the pause is about. A receipt has to name the same action and the same
+    # halt to be usable, or a valid exemption signed for one request resumes
+    # another. halt_id is unique per pause so a receipt cannot be replayed onto a
+    # later halt of the same request.
+    request_id: str = ""
+    policy_id: str = ""
+    halt_id: str = ""
 
     def as_dict(self) -> dict:
         return {
@@ -473,6 +488,9 @@ class Outcome:
             "reason": self.reason,
             "paused": self.paused,
             "receipt": self.receipt,
+            "request_id": self.request_id,
+            "policy_id": self.policy_id,
+            "halt_id": self.halt_id,
         }
 
 
@@ -483,6 +501,7 @@ def evaluate(
     halt_cause: str = HaltCause.POLICY_VIOLATION.value,
     policy_id: str = "",
     request_id: str = "",
+    halt_id: str = "",
 ) -> Outcome:
     """The sidecar's decision, before any exemption is considered.
 
@@ -498,15 +517,24 @@ def evaluate(
             f"got {mode!r}"
         ) from None
 
+    # What this decision is about, stamped on every outcome so a receipt can be
+    # checked against it. A pause also gets a halt id, unique per pause, so one
+    # receipt cannot be replayed onto a later halt of the same request.
+    this_halt = halt_id or uuid4().hex
+
     if halt_cause in EXEMPTION_DOES_NOT_COVER:
+        pausing = compliance is ComplianceMode.VOC
         return Outcome(
-            decision=Decision.PAUSE if compliance is ComplianceMode.VOC else Decision.DENY,
-            wire_value="pause" if compliance is ComplianceMode.VOC else "deny",
+            decision=Decision.PAUSE if pausing else Decision.DENY,
+            wire_value="pause" if pausing else "deny",
             reason=(
                 f"{halt_cause} cannot be exempted, so the action halts regardless of "
                 "compliance mode"
             ),
-            paused=compliance is ComplianceMode.VOC,
+            paused=pausing,
+            request_id=request_id,
+            policy_id=policy_id,
+            halt_id=this_halt if pausing else "",
         )
 
     if policy_allows:
@@ -514,6 +542,8 @@ def evaluate(
             decision=Decision.ALLOW,
             wire_value="allow",
             reason="policy allowed the action",
+            request_id=request_id,
+            policy_id=policy_id,
         )
 
     if compliance is ComplianceMode.STRICT:
@@ -524,6 +554,8 @@ def evaluate(
                 "policy denied the action and compliance mode is STRICT, so it fails "
                 "closed with no exception path"
             ),
+            request_id=request_id,
+            policy_id=policy_id,
         )
 
     return Outcome(
@@ -534,6 +566,9 @@ def evaluate(
             "pauses and requests an exemption"
         ),
         paused=True,
+        request_id=request_id,
+        policy_id=policy_id,
+        halt_id=this_halt,
     )
 
 
@@ -542,12 +577,24 @@ def resume_on_exemption(
     outcome: Outcome,
     receipt: dict,
     signer: HmacSigner,
+    now=None,
 ) -> Outcome:
     """Apply a signed receipt to a paused outcome.
 
     The signature is checked; the justification is not read. That asymmetry is
     the design, not an omission.
+
+    A valid signature proves who signed and nothing about what for, so the
+    receipt has to name the same action and the same halt that is paused. Without
+    that, a receipt signed for one request resumes another, an expired one resumes
+    whatever it is presented at, and one receipt can be replayed onto a later halt
+    of the same request.
     """
+    if now is None:
+        from datetime import datetime, timezone
+
+        now = datetime.now(timezone.utc)
+
     if not outcome.paused:
         return Outcome(
             decision=Decision.DENY,
@@ -566,12 +613,76 @@ def resume_on_exemption(
             wire_value="deny",
             reason="the receipt signature did not verify, so the pause stands",
         )
+
+    # The receipt must name this action. Comparing only the basis and the
+    # signature let a receipt for req-B/pol-B resume the pause on req-A.
+    receipt_request = str(receipt.get("request_id", ""))
+    receipt_policy = str(receipt.get("policy_id", ""))
+    if not outcome.request_id or receipt_request != outcome.request_id:
+        return Outcome(
+            decision=Decision.DENY,
+            wire_value="deny",
+            reason=(
+                f"the receipt is bound to request {receipt_request!r} but the paused "
+                f"action is {outcome.request_id!r}; a valid signature for another "
+                "request is not authority for this one"
+            ),
+        )
+    if not outcome.policy_id or receipt_policy != outcome.policy_id:
+        return Outcome(
+            decision=Decision.DENY,
+            wire_value="deny",
+            reason=(
+                f"the receipt is bound to policy {receipt_policy!r} but the paused "
+                f"action is {outcome.policy_id!r}"
+            ),
+        )
+
+    # And it must name this halt, not merely this request: otherwise the same
+    # receipt resumes every later pause of the same action.
+    receipt_halt = str(receipt.get("halt_id", ""))
+    if not receipt_halt or not outcome.halt_id or receipt_halt != outcome.halt_id:
+        return Outcome(
+            decision=Decision.DENY,
+            wire_value="deny",
+            reason=(
+                "the receipt does not name this halt, so it cannot be shown to answer "
+                "it rather than a different or earlier pause"
+            ),
+        )
+
+    # An exemption is an acceptance of risk for a period. Reading the window and
+    # never comparing it to a clock makes validity.not_after decoration.
+    not_after = str((receipt.get("validity") or {}).get("not_after", ""))
+    if not_after:
+        from .resume import _parse_instant
+
+        end = _parse_instant(not_after)
+        if end is None:
+            return Outcome(
+                decision=Decision.DENY,
+                wire_value="deny",
+                reason=(
+                    f"the exemption's validity window {not_after!r} cannot be read, so "
+                    "the resume cannot be shown to fall inside it"
+                ),
+            )
+        if now > end:
+            return Outcome(
+                decision=Decision.DENY,
+                wire_value="deny",
+                reason=(
+                    f"the exemption expired at {not_after}, before it was presented; "
+                    "an expired acceptance of risk does not authorise the action now"
+                ),
+            )
+
     return Outcome(
         decision=Decision.RESUME,
         wire_value="resume",
         reason=(
-            "resumed on exemption: the receipt verifies, the reason is recorded and "
-            "was not evaluated by the protocol"
+            "resumed on exemption: the receipt verifies, it names this halt, the "
+            "reason is recorded and was not evaluated by the protocol"
         ),
         receipt=receipt,
     )

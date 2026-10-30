@@ -334,7 +334,11 @@ recording that it took a third round to see it.
 `REVERIFY` is a legal transition, so anyone holding the lifecycle could reach
 `RESUMED` with an empty receipt and no basis recorded. The edge stays declared in
 the table, because a governing regime needs to be able to withdraw it and a suite
-needs to enumerate it, but walking it now requires a token only `resume()` holds.
+needs to enumerate it, but walking it now requires a token that only `resume()`
+passes. A caller who can import the module can obtain that token, and could
+equally assign the state attribute, so this is a guard against accident rather
+than against a hostile caller inside the process. What it does guarantee is that
+no ordinary call path reaches `RESUMED` without a recorded basis.
 
 **The irreversible-revocation refusal was defeatable in one step.** `resume()`
 advanced to `REVERIFY` and *then* evaluated `revocation_irreversible`, so the
@@ -357,13 +361,52 @@ produced, and each was invisible to a check that exercised the primary entry
 point. T-7.5 to T-7.7 and F7 and F8 now drive the transition, the refusal path and
 the construction, and each is proven to fail against the previous code.
 
+## The second revalidation found three more
+
+A third review, this time of the fix above, found three defects that were not in
+the state machine at all. They are a different class from the first six, and the
+more serious for it: each is a case where a value was recorded, or a signature
+verified, and nothing checked what it was for.
+
+**A signed exemption was not bound to the action it excused.** The receipt carries
+`request_id` and `policy_id`, and `resume_on_exemption` compared only the resume
+basis and the signature. So a receipt signed for one request resumed a different
+one, a receipt that expired in 2020 resumed, and the same receipt could be
+presented at a second pause of the same request. The receipt now has to name the
+halt it answers: each pause gets a unique `halt_id`, the receipt carries it, and a
+mismatch, an absent binding or an expired window is refused. That also makes the
+claim in `VOC-CONTEXT.md` true, which said the receipt must carry the request it
+binds to so it cannot be replayed onto another call.
+
+**The basis outranked the receiver's own knowledge.** `decide_resume` read
+`(basis.state_at_resume or delegation_state)`, so a basis asserting `ACTIVE`
+resumed into a delegation the receiver knew was `REVOKED`, and the parameter that
+would carry the receiver's knowledge was never passed by anything. The receiver's
+value now wins, and a contradiction is refused rather than resolved in the
+sender's favour.
+
+**Expiry was recorded and never checked.** `RestoreEvidence.complete` required
+`valid_until` and nothing compared it to a clock, on either the evidence path or
+the exemption path. A required field that nothing reads is worse than an absent
+one, because it reads as validation. Both paths now refuse an expired or
+not-yet-valid window, and an unreadable window is refused rather than ignored.
+
+Two smaller things came out of the same review. `T-7.5` caught bare `Exception`,
+so a `TypeError` would have been recorded as a refusal and passed; it now requires
+the module's own error. And the sentence claiming the resume token is held only by
+`resume()` was false for any caller able to import the module, which is corrected
+above.
+
+T-7.8 to T-7.10 pin the three fixes, each proven to fail when its behaviour is
+mutated back, and the receipt schema now requires `halt_id`.
+
 ## Validated on VM2
 
 The wheel is built and validated in a clean-room Docker container on VM2, with no
 network during install, so the artefact set has to be self sufficient. Thirteen
 stages, all passing: offline install, import confirmed to resolve to the wheel
-rather than a staged source tree, 163 tests collected and 163 passing, the twenty
-three check self test, the evidence findings re-derived from the installed wheel, sdist
+rather than a staged source tree, 174 tests collected and 174 passing, the twenty
+six check self test, the evidence findings re-derived from the installed wheel, sdist
 cleanliness, `pip check`, no runtime dependencies, and the ML-DSA core signing and
 refusing an empty payload.
 

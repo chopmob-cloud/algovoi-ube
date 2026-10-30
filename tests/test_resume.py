@@ -50,8 +50,8 @@ def evidence_basis() -> ResumeBasis:
         evidence=RestoreEvidence(
             conditions=["registry reports the policy as satisfied"],
             verifier_role="compliance-officer",
-            valid_from="2026-10-30T09:00:00Z",
-            valid_until="2026-10-30T17:00:00Z",
+            valid_from="2020-01-01T00:00:00Z",
+            valid_until="2099-12-31T00:00:00Z",
         ),
     )
 
@@ -284,7 +284,7 @@ def test_a_revoked_delegation_is_declined_even_with_a_valid_signature():
         evidence=RestoreEvidence(
             conditions=["condition was restored"],
             verifier_role="compliance-officer",
-            valid_until="2026-10-30T17:00:00Z",
+            valid_until="2099-12-31T00:00:00Z",
         ),
     )
     decision = decide_resume(signature_valid=True, basis=basis)
@@ -310,13 +310,106 @@ def test_the_lifecycle_refuses_a_resume_with_a_forbidden_basis():
         evidence=RestoreEvidence(
             conditions=["condition was restored"],
             verifier_role="compliance-officer",
-            valid_until="2026-10-30T17:00:00Z",
+            valid_until="2099-12-31T00:00:00Z",
         ),
     )
     life = paused_lifecycle()
     with pytest.raises(IllegalTransition):
         life.resume(revoked)
     assert life.state is State.PAUSE
+
+
+def test_the_receivers_knowledge_outranks_the_basis_claim():
+    """A document asserting its own delegation is fine is not evidence.
+
+    The precedence used to be ``basis.state_at_resume or delegation_state``, so a
+    basis claiming ACTIVE resumed into a delegation the receiver knew was
+    REVOKED. The receiver's value now wins, and a contradiction is refused rather
+    than resolved in the sender's favour.
+    """
+    claiming_active = ResumeBasis(
+        basis=Basis.EXEMPTION.value,
+        covers="policy_violation",
+        exemption_reason="release window",
+        exemption_actor="manager@example.com",
+        delegation_id="d-42",
+        state_at_resume="ACTIVE",
+    )
+    decision = decide_resume(
+        signature_valid=True, basis=claiming_active, delegation_state="REVOKED"
+    )
+    assert decision.allowed is False
+    assert "contradicts the verifier" in decision.reason
+
+    # With nothing claimed, the receiver's own knowledge still refuses.
+    silent = ResumeBasis(
+        basis=Basis.EXEMPTION.value,
+        covers="policy_violation",
+        exemption_reason="release window",
+        exemption_actor="manager@example.com",
+        delegation_id="d-42",
+    )
+    assert decide_resume(
+        signature_valid=True, basis=silent, delegation_state="REVOKED"
+    ).allowed is False
+
+    # And the claim alone, with no receiver knowledge, is still read.
+    assert decide_resume(
+        signature_valid=True, basis=claiming_active, delegation_state="ACTIVE"
+    ).allowed is True
+
+
+def test_an_expired_restore_window_is_refused():
+    """valid_until was required and never compared to a clock."""
+    from datetime import datetime, timezone
+
+    stale = ResumeBasis(basis=Basis.EVIDENCE.value, evidence=RestoreEvidence(
+        conditions=["condition restored"], verifier_role="officer",
+        valid_from="2020-01-01T00:00:00Z", valid_until="2020-01-02T00:00:00Z"))
+    decision = decide_resume(
+        signature_valid=True, basis=stale,
+        now=datetime(2026, 10, 30, 21, 0, tzinfo=timezone.utc),
+    )
+    assert decision.allowed is False
+    assert "ended at" in decision.reason
+
+
+def test_a_restore_window_that_has_not_begun_is_refused():
+    from datetime import datetime, timezone
+
+    early = ResumeBasis(basis=Basis.EVIDENCE.value, evidence=RestoreEvidence(
+        conditions=["condition restored"], verifier_role="officer",
+        valid_from="2099-01-01T00:00:00Z", valid_until="2099-12-31T00:00:00Z"))
+    decision = decide_resume(
+        signature_valid=True, basis=early,
+        now=datetime(2026, 10, 30, 21, 0, tzinfo=timezone.utc),
+    )
+    assert decision.allowed is False
+    assert "does not begin until" in decision.reason
+
+
+def test_an_unreadable_restore_window_is_refused():
+    from datetime import datetime, timezone
+
+    broken = ResumeBasis(basis=Basis.EVIDENCE.value, evidence=RestoreEvidence(
+        conditions=["condition restored"], verifier_role="officer",
+        valid_until="not-a-timestamp"))
+    decision = decide_resume(
+        signature_valid=True, basis=broken,
+        now=datetime(2026, 10, 30, 21, 0, tzinfo=timezone.utc),
+    )
+    assert decision.allowed is False
+    assert "cannot be read" in decision.reason
+
+
+def test_a_window_containing_the_clock_still_resumes():
+    from datetime import datetime, timezone
+
+    decision = decide_resume(
+        signature_valid=True, basis=evidence_basis(),
+        now=datetime(2026, 10, 30, 21, 0, tzinfo=timezone.utc),
+    )
+    assert decision.allowed is True
 
 
 def test_the_lifecycle_records_the_basis_on_a_legal_resume():

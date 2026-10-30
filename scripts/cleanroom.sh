@@ -116,7 +116,8 @@ assert bare.allowed is False and bare.wire_value == 'pause', bare
 on_ev = decide_resume(signature_valid=True, basis=ResumeBasis(
     basis=Basis.EVIDENCE.value,
     evidence=RestoreEvidence(conditions=['restored'], verifier_role='officer',
-                             valid_until='2026-10-30T17:00:00Z')))
+                             valid_from='2020-01-01T00:00:00Z',
+                             valid_until='2099-12-31T00:00:00Z')))
 assert on_ev.allowed is True, on_ev
 assert State.RESUMED in LEGAL[State.REVERIFY]
 for bad in ('authority_revoked', 'authority_not_determined'):
@@ -125,6 +126,23 @@ for bad in ('authority_revoked', 'authority_not_determined'):
         raise SystemExit('exemption wrongly covered ' + bad)
     except ResumeRefused:
         pass
+
+# The revalidated properties, re-derived from the installed wheel: an expired
+# window is refused, and what the receiver knows outranks what the basis claims.
+from datetime import datetime, timezone
+expired = decide_resume(signature_valid=True, basis=ResumeBasis(
+    basis=Basis.EVIDENCE.value,
+    evidence=RestoreEvidence(conditions=['restored'], verifier_role='officer',
+                             valid_from='2020-01-01T00:00:00Z',
+                             valid_until='2020-01-02T00:00:00Z')),
+    now=datetime(2026, 10, 30, 21, 0, tzinfo=timezone.utc))
+assert expired.allowed is False, expired
+claiming = ResumeBasis(basis=Basis.EXEMPTION.value, covers='policy_violation',
+                       exemption_reason='window', exemption_actor='manager@example.com',
+                       delegation_id='d-1', state_at_resume='ACTIVE')
+contradicted = decide_resume(signature_valid=True, basis=claiming,
+                             delegation_state='REVOKED')
+assert contradicted.allowed is False, contradicted
 print('  F7 to F10 re-derived from the wheel: pass')
 " > /work/evidence.log 2>&1
 RC=$?

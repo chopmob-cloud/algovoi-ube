@@ -398,7 +398,7 @@ def finding_resume_basis() -> dict:
             evidence=RestoreEvidence(
                 conditions=["registry reports the policy satisfied"],
                 verifier_role="compliance-officer",
-                valid_until="2026-10-30T17:00:00Z",
+                valid_until="2099-12-31T00:00:00Z",
             ),
         ),
     )
@@ -411,7 +411,7 @@ def finding_resume_basis() -> dict:
             evidence=RestoreEvidence(
                 conditions=["condition restored"],
                 verifier_role="compliance-officer",
-                valid_until="2026-10-30T17:00:00Z",
+                valid_until="2099-12-31T00:00:00Z",
             ),
         ),
     )
@@ -635,12 +635,17 @@ def finding_tampered_receipt() -> dict:
 
     signer = HmacSigner(b"evidence-key", key_id="evidence")
     grader, _ = _mandated_grader(signer)
+    # The receipt has to name the halt it answers, so the pause is created first
+    # and its id is carried into the signature. Without that the clean receipt
+    # would be refused for want of a binding and the finding would pass without
+    # testing tampering at all.
+    paused = evaluate(mode="VOC", policy_allows=False, request_id="q", policy_id="p")
     good = grader.sign_exemption(
         receipt_id="r", issued_at="2026-10-30T16:00:00Z", request_id="q",
         policy_id="p", halt_cause="policy_violation", reason="original reason",
-        delegation_id="d", principal_id="p1", valid_until="2026-10-30T18:00:00Z",
+        delegation_id="d", principal_id="p1", valid_until="2099-12-31T00:00:00Z",
+        halt_id=paused.halt_id,
     )
-    paused = evaluate(mode="VOC", policy_allows=False)
     clean = resume_on_exemption(outcome=paused, receipt=good, signer=signer)
 
     tampered = dict(good)
@@ -653,9 +658,12 @@ def finding_tampered_receipt() -> dict:
         "claim": "A receipt whose justification is edited after signing does not resume the halted action, so the signature is load bearing rather than decorative",
         "clean_receipt": {"wire_value": clean.wire_value},
         "tampered_receipt": {"wire_value": dirty.wire_value, "reason": dirty.reason},
+        "tampered_refused_on_the_signature": "signature did not verify" in dirty.reason,
         "verdict": (
             "confirmed"
-            if clean.wire_value == "resume" and dirty.wire_value != "resume"
+            if clean.wire_value == "resume"
+            and dirty.wire_value != "resume"
+            and "signature did not verify" in dirty.reason
             else "refuted"
         ),
     }

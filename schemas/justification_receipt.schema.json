@@ -11,6 +11,7 @@
     "issued_at",
     "request_id",
     "policy_id",
+    "halt_id",
     "halt",
     "decision",
     "resume_basis",
@@ -48,17 +49,31 @@
       "minLength": 1,
       "description": "The policy that denied the action."
     },
+    "halt_id": {
+      "type": "string",
+      "minLength": 1,
+      "description": "The halt this receipt answers. A pause gets a unique halt id, so a receipt cannot be replayed onto a later halt of the same request. Presenting a receipt whose halt_id differs from the paused action's does not resume it."
+    },
     "halt": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["cause", "policy_id", "reason"],
+      "required": [
+        "cause",
+        "policy_id",
+        "reason"
+      ],
       "properties": {
         "cause": {
           "type": "string",
-          "enum": ["policy_violation"],
+          "enum": [
+            "policy_violation"
+          ],
           "description": "The only halt an exemption may answer. authority_revoked and authority_not_determined are deliberately absent from this enumeration, so an exempted revocation is not expressible."
         },
-        "policy_id": { "type": "string", "minLength": 1 },
+        "policy_id": {
+          "type": "string",
+          "minLength": 1
+        },
         "reason": {
           "type": "string",
           "minLength": 1,
@@ -77,16 +92,23 @@
     },
     "exemption_covers": {
       "type": "array",
-      "const": ["policy_violation"]
+      "const": [
+        "policy_violation"
+      ]
     },
     "exemption_does_not_cover": {
       "type": "array",
-      "const": ["authority_revoked", "authority_not_determined"]
+      "const": [
+        "authority_revoked",
+        "authority_not_determined"
+      ]
     },
     "justification": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["reason"],
+      "required": [
+        "reason"
+      ],
       "properties": {
         "reason": {
           "type": "string",
@@ -96,7 +118,10 @@
         },
         "evidence_refs": {
           "type": "array",
-          "items": { "type": "string", "minLength": 1 },
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
           "description": "Optional references the grader relied on. Recorded for the auditor, not checked by the protocol."
         }
       }
@@ -104,7 +129,11 @@
     "grader": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["grader_id", "grader_role", "mandate_id"],
+      "required": [
+        "grader_id",
+        "grader_role",
+        "mandate_id"
+      ],
       "properties": {
         "grader_id": {
           "type": "string",
@@ -130,7 +159,10 @@
     "principal": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["principal_id", "delegation_id"],
+      "required": [
+        "principal_id",
+        "delegation_id"
+      ],
       "properties": {
         "principal_id": {
           "type": "string",
@@ -147,7 +179,9 @@
     "validity": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["not_after"],
+      "required": [
+        "not_after"
+      ],
       "properties": {
         "not_after": {
           "type": "string",
@@ -163,14 +197,21 @@
     "signature": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["alg", "key_id", "value"],
+      "required": [
+        "alg",
+        "key_id",
+        "value"
+      ],
       "properties": {
         "alg": {
           "type": "string",
           "minLength": 1,
           "description": "Signature algorithm. The specification mandates a post-quantum scheme (CRYSTALS-Dilithium5); the harness uses HMAC-SHA256 to test protocol shape only."
         },
-        "key_id": { "type": "string", "minLength": 1 },
+        "key_id": {
+          "type": "string",
+          "minLength": 1
+        },
         "value": {
           "type": "string",
           "minLength": 1,

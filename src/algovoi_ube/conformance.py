@@ -348,18 +348,27 @@ def t_7_5(report: Report) -> Check:
             "A resume MUST carry a basis; reaching RESUMED with none MUST be refused",
         )
     )
-    from .failclosed import Lifecycle, State
+    from .failclosed import IllegalTransition, Lifecycle, State
 
     life = Lifecycle()
     for step in (State.GATE_PASSED, State.ACTIVE, State.ANOMALY, State.PAUSE):
         life.to(step)
     try:
         life.resume()
-    except Exception as exc:  # noqa: BLE001
+    except IllegalTransition as exc:
+        # The module's own refusal, not any exception: catching Exception here
+        # would record a TypeError from a broken guard as a successful refusal.
         check.passed = life.state is not State.RESUMED
         check.detail = (
             f"refused at the lifecycle: {exc.__class__.__name__}; "
             f"state stayed {life.state.value}"
+        )
+        return check
+    except Exception as exc:  # noqa: BLE001
+        check.passed = False
+        check.detail = (
+            f"raised {exc.__class__.__name__} rather than refusing, which is a bug "
+            "and not a refusal"
         )
         return check
     check.passed = False
@@ -424,6 +433,116 @@ def t_7_7(report: Report) -> Check:
         return check
     check.passed = False
     check.detail = "an exemption with no reason and no actor constructed cleanly"
+    return check
+
+
+def t_7_8(report: Report) -> Check:
+    """T-7.8: what the receiver knows outranks what the basis claims."""
+    check = report.add(
+        Check(
+            "T-7.8",
+            "resume basis, the receiver's knowledge wins",
+            "A basis asserting its own delegation is ACTIVE MUST NOT override the "
+            "receiver's knowledge that it is REVOKED",
+        )
+    )
+    from .resume import Basis, ResumeBasis, decide_resume
+
+    basis = ResumeBasis(
+        basis=Basis.EXEMPTION.value,
+        covers="policy_violation",
+        exemption_reason="release window",
+        exemption_actor="manager@example.com",
+        delegation_id="d-42",
+        state_at_resume="ACTIVE",
+    )
+    decision = decide_resume(
+        signature_valid=True, basis=basis, delegation_state="REVOKED"
+    )
+    check.passed = decision.allowed is False
+    check.detail = (
+        f"basis claimed ACTIVE, receiver knew REVOKED, decision allowed="
+        f"{decision.allowed} ({decision.reason[:60]})"
+    )
+    return check
+
+
+def t_7_9(report: Report) -> Check:
+    """T-7.9: an expired restore window must be refused."""
+    check = report.add(
+        Check(
+            "T-7.9",
+            "resume basis, currency of the evidence",
+            "Restore evidence whose validity window has passed MUST NOT resume the "
+            "action",
+        )
+    )
+    from datetime import datetime, timezone
+
+    from .resume import Basis, RestoreEvidence, ResumeBasis, decide_resume
+
+    stale = ResumeBasis(
+        basis=Basis.EVIDENCE.value,
+        evidence=RestoreEvidence(
+            conditions=["condition restored"],
+            verifier_role="compliance-officer",
+            valid_from="2020-01-01T00:00:00Z",
+            valid_until="2020-01-02T00:00:00Z",
+        ),
+    )
+    decision = decide_resume(
+        signature_valid=True,
+        basis=stale,
+        now=datetime(2026, 10, 30, 21, 0, tzinfo=timezone.utc),
+    )
+    check.passed = decision.allowed is False
+    check.detail = f"expired window, decision allowed={decision.allowed}"
+    return check
+
+
+def t_7_10(report: Report) -> Check:
+    """T-7.10: a receipt must name the halt it answers."""
+    check = report.add(
+        Check(
+            "T-7.10",
+            "exemption receipt, bound to the halt",
+            "A signed exemption naming a different halt MUST NOT resume this pause",
+        )
+    )
+    from .voc import (
+        HmacSigner,
+        JustificationReceipt,
+        evaluate,
+        resume_on_exemption,
+    )
+
+    signer = HmacSigner(b"conformance-key", key_id="conformance")
+    paused = evaluate(
+        mode="VOC", policy_allows=False, request_id="req-1", policy_id="pol-1",
+        halt_id="halt-of-this-pause",
+    )
+    foreign = JustificationReceipt(
+        receipt_id="r-1",
+        issued_at="2026-10-30T16:00:00Z",
+        request_id="req-1",
+        policy_id="pol-1",
+        halt_cause="policy_violation",
+        reason="signed for a different halt",
+        grader_id="g-1",
+        grader_role="compliance-officer",
+        delegation_id="d-1",
+        principal_id="p-1",
+        valid_until="2099-12-31T00:00:00Z",
+        halt_id="halt-of-another-pause",
+    )
+    receipt = foreign.to_json(
+        signature=signer.sign(foreign.signing_input()),
+        algorithm="HMAC-SHA256",
+        key_id="conformance",
+    )
+    outcome = resume_on_exemption(outcome=paused, receipt=receipt, signer=signer)
+    check.passed = outcome.wire_value != "resume"
+    check.detail = f"wire_value={outcome.wire_value} ({outcome.reason[:70]})"
     return check
 
 
@@ -738,6 +857,9 @@ def run_all(
         t_7_5(report)
         t_7_6(report)
         t_7_7(report)
+        t_7_8(report)
+        t_7_9(report)
+        t_7_10(report)
     if voc_evaluate is not None:
         t_8_1(report, voc_evaluate)
         t_8_2(report, voc_evaluate)
