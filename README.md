@@ -129,34 +129,44 @@ can act on it.
 
 Their transition contract already tracks seven open items, OPEN-1 to OPEN-7, which
 is to their credit and makes the useful distinction possible: four of the gaps
-below are not on that list at all. Those are the ones worth raising.
+below are not on that list at all. Those are the ones worth raising, recorded here
+as discrete issues so each can be tracked and closed rather than read past.
 
-**The published `request_hash` is not the hash of an action.** F2, and not on their
-open list. In the published conformance chain, event 1's `request_hash` is exactly
-the SHA-256 of the empty string, and event 2's is a rearrangement of those same
-bytes. The chain verifies, and it does not say what was evaluated. Regenerate the
-example before anyone copies it, because an audit record that verifies while
-recording nothing is worse than no record.
+**NTI-ISSUE-1 — the published `request_hash` is not the hash of an action.** F2, and
+not on their open list. In the published conformance chain, event 1's `request_hash`
+is exactly the SHA-256 of the empty string, and event 2's is a rearrangement of those
+same bytes. The chain verifies, and it does not say what was evaluated; an audit
+record that verifies while recording nothing is worse than no record.
+*To address:* regenerate the example so each `request_hash` is the hash of the actual
+request payload, before the example is copied into implementations.
 
-**No canonicalisation scheme is named.** Not on their open list, and absent from
-both NTI-1 and the contract. A signature needs deterministic bytes, and nothing says
-how a receipt is serialised, so two compliant implementations produce different
-bytes for the same receipt and neither verifies the other's. This harness uses
-RFC 8785, implemented and tested in `canonical.py` (F14), because it is the only such
-scheme with published test vectors. Naming one is a one-line fix with a large effect.
+**NTI-ISSUE-2 — no canonicalisation scheme is named.** Not on their open list, and
+absent from both NTI-1 and the contract. A signature needs deterministic bytes, and
+nothing says how a receipt is serialised, so two compliant implementations produce
+different bytes for the same receipt and neither verifies the other's.
+*To address:* name a canonicalisation scheme normatively; RFC 8785 is recommended as
+the only such scheme with published test vectors, implemented and tested here in
+`canonical.py` (F14). A one-line normative fix with a large interoperability effect.
 
-**No signature, receipt or negative vectors are published.** Not on their open list.
-The `conformance` directory holds an audit log, a README and a validator. There is no
-ML-DSA test vector, no example receipt and no negative vector, so an implementer
-cannot check their signer or their receipt against anything. The harness has to build
-its own, which means it is testing our reading of the standard rather than the
+**NTI-ISSUE-3 — no signature, receipt or negative vectors are published.** Not on
+their open list. The `conformance` directory holds an audit log, a README and a
+validator. There is no ML-DSA test vector, no example receipt and no negative vector,
+so an implementer cannot check their signer or their receipt against anything, and
+every suite ends up testing its author's reading of the standard rather than the
 standard.
+*To address:* publish a known-answer ML-DSA-87 signature vector, at least one valid
+example receipt with its canonical bytes and signature, and negative vectors that MUST
+be rejected — a tampered receipt, a wrong canonicalisation and an expired capability.
 
-**The automated grader has no authority model.** Not on their open list. Issue 21 asks
-for a grader holding authority to accept risk, and does not say who issues that
-authority, for which policies, up to what value, until when, or how it is withdrawn.
-Left undefined, every implementation invents its own and no two are comparable.
-`mandate.py` closes the gap here (F18) as a proposal, not as a reading of the text.
+**NTI-ISSUE-4 — the automated grader has no authority model.** Not on their open list.
+Issue 21 asks for a grader holding authority to accept risk, and does not say who
+issues that authority, for which policies, up to what value, until when, or how it is
+withdrawn. Left undefined, every implementation invents its own and no two are
+comparable.
+*To address:* specify a bounded, signed, revocable mandate — issuer (which MUST differ
+from the grader), policy scope, principal scope, value ceiling, expiry, exemption
+count, and a revocation check at signing time. `mandate.py` closes the gap here (F18)
+as a proposal, not as a reading of the text.
 
 **Section 6 has no tests.** The five testable requirements are T-1.1 to T-5.1, and
 they cover identity, governance, consensus, audit and persistence. The entire halt
