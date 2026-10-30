@@ -229,7 +229,9 @@ def self_test() -> int:
     try:
         probe.resume(revocation_irreversible=True)
     except IllegalTransition:
-        withdrawn = probe.state is State.REVERIFY
+        # The refusal must leave the chain where it started: a refusal after
+        # advancing to REVERIFY parked it one legal transition from RESUMED.
+        withdrawn = probe.state is State.PAUSE
     print(f"  irreversible revocation withdraws the edge: "
           f"{'pass' if withdrawn else 'FAIL'}")
 

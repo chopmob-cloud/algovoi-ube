@@ -367,6 +367,66 @@ def t_7_5(report: Report) -> Check:
     return check
 
 
+def t_7_6(report: Report) -> Check:
+    """T-7.6: the declared edge is not a public route to RESUMED.
+
+    The edge is declared so a governing regime can withdraw it, and enumerable so
+    a suite can see it. Walking it directly reaches RESUMED with no basis
+    recorded, which is the fail-open the resume basis exists to refuse, so the
+    guard has to sit on the transition rather than on the caller.
+    """
+    check = report.add(
+        Check(
+            "T-7.6",
+            "resume basis, the table is not a second route",
+            "Reaching RESUMED without a recorded basis MUST be refused on every "
+            "path, including the declared transition",
+        )
+    )
+    from .failclosed import Lifecycle, State
+
+    life = Lifecycle()
+    for step in (State.GATE_PASSED, State.ACTIVE, State.ANOMALY, State.PAUSE):
+        life.to(step)
+    life.to(State.ROLLBACK)
+    life.to(State.REVERIFY)
+    try:
+        life.to(State.RESUMED)
+    except Exception as exc:  # noqa: BLE001
+        check.passed = life.state is State.REVERIFY and not life.receipt
+        check.detail = (
+            f"refused at the transition: {exc.__class__.__name__}; "
+            f"state stayed {life.state.value}, receipt empty"
+        )
+        return check
+    check.passed = False
+    check.detail = f"the declared edge reached {life.state.value} with receipt {life.receipt!r}"
+    return check
+
+
+def t_7_7(report: Report) -> Check:
+    """T-7.7: an exemption basis must record a reason and an accountable actor."""
+    check = report.add(
+        Check(
+            "T-7.7",
+            "resume basis, exemption substance",
+            "An exemption basis MUST record why the risk was accepted and who "
+            "accepted it; an empty exemption MUST be refused at construction",
+        )
+    )
+    from .resume import Basis, ResumeBasis
+
+    try:
+        ResumeBasis(basis=Basis.EXEMPTION.value, covers="policy_violation")
+    except Exception as exc:  # noqa: BLE001
+        check.passed = True
+        check.detail = f"the empty exemption was refused at construction: {exc.__class__.__name__}"
+        return check
+    check.passed = False
+    check.detail = "an exemption with no reason and no actor constructed cleanly"
+    return check
+
+
 def t_8_1(report: Report, evaluate: Callable[..., object]) -> Check:
     """T-8.1: STRICT must fail closed with no exception path."""
     check = report.add(
@@ -676,6 +736,8 @@ def run_all(
             paused = decide_resume(signature_valid=True, basis=None)
             t_7_4(report, wire_values, paused)
         t_7_5(report)
+        t_7_6(report)
+        t_7_7(report)
     if voc_evaluate is not None:
         t_8_1(report, voc_evaluate)
         t_8_2(report, voc_evaluate)

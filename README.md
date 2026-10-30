@@ -93,7 +93,7 @@ Eighteen findings, all currently confirmed:
 | F4 | `ube-foundation` is PolyForm Shield, so it cannot be vendored into an Apache-2.0 harness | confirmed |
 | F5 | Keystone fully answers 3 of 7 NTI-1 requirements, partly 2, not at all 2 | confirmed |
 | F6 | An `incomplete_check` cannot be built with an unclassified reason | confirmed |
-| F7 | The `REVERIFY` to `RESUMED` edge is declared and withdrawable without a terminal state | confirmed |
+| F7 | The `REVERIFY` to `RESUMED` edge is declared, withdrawable, and not walkable without a recorded basis | confirmed |
 | F8 | A valid signature alone does not reach RESUMED; a complete basis is required, on the lifecycle path too | confirmed |
 | F9 | An exemption covers a policy violation and cannot cover a revocation or an unknown | confirmed |
 | F10 | The wire value does not depend on the receipt being present | confirmed |
@@ -321,13 +321,49 @@ while the lifecycle accepted none, so the finding was false on that path until t
 code was fixed; its wording now names the lifecycle, and T-7.5 makes the assertion
 testable rather than aspirational.
 
+## The revalidation found three more
+
+A second independent review of the fix above found three further routes to the
+same state, all of one shape: the basis invariant was enforced in `resume()`
+rather than at the transition that produces `RESUMED`. Guarding the caller left
+the transition table as an unguarded parallel route to the state the caller
+guards. That is the same defect as F7 wearing different clothes, and it is worth
+recording that it took a third round to see it.
+
+**The declared edge could be walked directly.** `to(State.RESUMED)` from
+`REVERIFY` is a legal transition, so anyone holding the lifecycle could reach
+`RESUMED` with an empty receipt and no basis recorded. The edge stays declared in
+the table, because a governing regime needs to be able to withdraw it and a suite
+needs to enumerate it, but walking it now requires a token only `resume()` holds.
+
+**The irreversible-revocation refusal was defeatable in one step.** `resume()`
+advanced to `REVERIFY` and *then* evaluated `revocation_irreversible`, so the
+refusal left the object one legal transition away from the state it had just
+refused. One `to(State.RESUMED)` completed what the guard had stopped. For the
+eIDAS Art. 28(4) case that guard is the entire control. Every guard now runs
+before the chain advances, so a refusal leaves it in `PAUSE`, exactly where the
+caller left it.
+
+**An empty exemption reached `RESUMED`.** The earlier fix made the evidence basis
+require completeness and left the exemption basis requiring nothing, so
+`ResumeBasis(basis="exemption", covers="policy_violation")` resumed with a reason
+and an actor of empty string. `JustificationReceipt` in `voc.py` already required
+both, so the lifecycle accepted a weaker exemption than the receipt it was
+supposed to agree with. Construction now refuses one.
+
+The pattern across all six holes is the same and is the useful finding: each was a
+property asserted in one function rather than enforced where the outcome is
+produced, and each was invisible to a check that exercised the primary entry
+point. T-7.5 to T-7.7 and F7 and F8 now drive the transition, the refusal path and
+the construction, and each is proven to fail against the previous code.
+
 ## Validated on VM2
 
 The wheel is built and validated in a clean-room Docker container on VM2, with no
 network during install, so the artefact set has to be self sufficient. Thirteen
 stages, all passing: offline install, import confirmed to resolve to the wheel
-rather than a staged source tree, 160 tests collected and 160 passing, the twenty
-one check self test, the evidence findings re-derived from the installed wheel, sdist
+rather than a staged source tree, 163 tests collected and 163 passing, the twenty
+three check self test, the evidence findings re-derived from the installed wheel, sdist
 cleanliness, `pip check`, no runtime dependencies, and the ML-DSA core signing and
 refusing an empty payload.
 

@@ -108,10 +108,67 @@ def test_irreversible_revocation_withdraws_the_edge_without_a_new_state():
     life = paused_lifecycle()
     with pytest.raises(IllegalTransition) as excinfo:
         life.resume(evidence_basis(), revocation_irreversible=True)
-    assert life.state is State.REVERIFY
+    # A refusal must leave no trace in the machine. It used to advance to
+    # REVERIFY and then refuse, which left the object one table-legal transition
+    # from the state it had just refused.
+    assert life.state is State.PAUSE
     assert "unavailable" in str(excinfo.value)
     # No terminal REVOKED state was invented to express it.
     assert not hasattr(State, "REVOKED")
+
+
+def test_the_table_is_not_a_second_route_to_resumed():
+    """R1: walking the declared edge directly must be refused.
+
+    The edge is declared so a governing regime can withdraw it, and enumerable so
+    a conformance suite can see it. It is not a public transition: reaching
+    RESUMED without a recorded basis is the fail-open, and guarding only
+    resume() left the table as an unguarded parallel route to it.
+    """
+    life = paused_lifecycle()
+    life.to(State.ROLLBACK)
+    life.to(State.REVERIFY)
+    with pytest.raises(IllegalTransition) as excinfo:
+        life.to(State.RESUMED)
+    assert "only through resume()" in str(excinfo.value)
+    assert life.state is State.REVERIFY
+    assert life.receipt == {}
+
+
+def test_an_irreversible_refusal_cannot_be_completed_by_a_later_transition():
+    """R2: the refusal used to park the chain one legal step from RESUMED."""
+    life = paused_lifecycle()
+    with pytest.raises(IllegalTransition):
+        life.resume(evidence_basis(), revocation_irreversible=True)
+    assert life.state is State.PAUSE
+    # PAUSE has no path to RESUMED, directly or through the table.
+    with pytest.raises(IllegalTransition):
+        life.to(State.RESUMED)
+
+
+def test_an_exemption_basis_must_record_a_reason_and_an_actor():
+    """R3: an exemption with no substance is a basis that says nothing.
+
+    JustificationReceipt in voc.py already requires a reason and an actor. The
+    lifecycle accepting a weaker exemption than the receipt representation is the
+    same disagreement that let an empty evidence basis through.
+    """
+    with pytest.raises(ResumeRefused):
+        ResumeBasis(basis=Basis.EXEMPTION.value, covers="policy_violation")
+    with pytest.raises(ResumeRefused):
+        ResumeBasis(
+            basis=Basis.EXEMPTION.value,
+            covers="policy_violation",
+            exemption_reason="business critical release window",
+        )
+    with pytest.raises(ResumeRefused):
+        ResumeBasis(
+            basis=Basis.EXEMPTION.value,
+            covers="policy_violation",
+            exemption_actor="manager@example.com",
+        )
+    # A complete exemption still works.
+    assert exemption_basis().exemption_actor == "manager@example.com"
 
 
 def test_resume_consults_the_table_rather_than_assigning_the_state(monkeypatch):
@@ -259,7 +316,7 @@ def test_the_lifecycle_refuses_a_resume_with_a_forbidden_basis():
     life = paused_lifecycle()
     with pytest.raises(IllegalTransition):
         life.resume(revoked)
-    assert life.state is State.REVERIFY
+    assert life.state is State.PAUSE
 
 
 def test_the_lifecycle_records_the_basis_on_a_legal_resume():

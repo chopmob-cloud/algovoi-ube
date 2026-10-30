@@ -284,7 +284,9 @@ def test_a_correct_resume_implementation_passes_the_new_checks():
 
     report = run_all(decide_resume=decide_resume, wire_values=WIRE_VALUES)
     assert report.passed, report.summary()
-    assert {c.ident for c in report.checks} == {"T-7.1", "T-7.2", "T-7.3", "T-7.4", "T-7.5"}
+    assert {c.ident for c in report.checks} == {
+        "T-7.1", "T-7.2", "T-7.3", "T-7.4", "T-7.5", "T-7.6", "T-7.7"
+    }
 
 
 def test_a_permissive_resume_implementation_fails_them():

@@ -1,5 +1,5 @@
 {
-  "collected_at": "2026-10-30T19:46:44Z",
+  "collected_at": "2026-10-30T20:42:57Z",
   "tool": "algovoi-ube evidence collector",
   "environment": {
     "python": "3.12.10",
@@ -248,10 +248,11 @@
     },
     {
       "id": "F7",
-      "claim": "The REVERIFY to RESUMED edge is a declared transition and can be withdrawn without inventing a terminal state, so irreversibility lives in the missing edge rather than in a stuck label",
-      "method": "inspect the transition table, then attempt a resume under an irreversible revocation and confirm the chain stays in REVERIFY",
+      "claim": "The REVERIFY to RESUMED edge is a declared transition that can be withdrawn without inventing a terminal state, it cannot be walked directly without a recorded basis, and an irreversible-revocation refusal leaves the chain where it started, so irreversibility lives in the missing edge rather than in a stuck label",
+      "method": "inspect the transition table, attempt a resume under an irreversible revocation and confirm the chain stays in PAUSE, then walk the declared edge directly and confirm it is refused",
       "edge_declared_in_table": true,
       "irreversible_revocation_withdraws_it": true,
+      "declared_edge_walkable_directly": false,
       "terminal_state_invented": false,
       "state_space_size": 8,
       "verdict": "confirmed"
@@ -283,7 +284,11 @@
       "lifecycle_no_basis": {
         "refused": true,
         "error": "resume refused: a resume must carry a basis (evidence or exemption); reaching RESUMED on no basis records nothing about why the halt was lifted",
-        "state": "REVERIFY"
+        "state": "PAUSE"
+      },
+      "empty_exemption_basis": {
+        "refused": true,
+        "error": "an exemption basis must record why the risk was accepted and who accepted it; an exemption with no reason and no accountable actor is an accepted risk that nobody owns"
       },
       "on_evidence": {
         "allowed": true,
@@ -329,8 +334,8 @@
               "authority_not_determined"
             ],
             "exemption": {
-              "reason": "",
-              "actor": ""
+              "reason": "business critical release window",
+              "actor": "manager@example.com"
             }
           }
         }
@@ -459,7 +464,7 @@
       "method": "sign a real payload in the Rust core, verify it, tamper with it, and attempt an empty payload",
       "measured": {
         "algorithm": "ML-DSA-87",
-        "key_id": "83d9cfa3699b179c",
+        "key_id": "e2c0adf306bc9d79",
         "verify_key_bytes": 2592,
         "signature_bytes": 4627,
         "core": "C:\\algo\\platform\\algovoi-ube\\rust\\nti-signer\\target\\release\\nti-signer.exe"

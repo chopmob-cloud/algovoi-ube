@@ -182,7 +182,7 @@ import pathlib
 p = pathlib.Path("/work/venv/lib/python3.12/site-packages/algovoi_ube/failclosed.py")
 t = p.read_text(encoding="utf-8")
 t = t.replace("    State.REVERIFY: {State.RESUMED},\n", "")
-t = t.replace("        self.to(State.RESUMED)\n        return self.state",
+t = t.replace("        self.to(State.RESUMED, _resume_token=_RESUME_TOKEN)\n        return self.state",
               "        self.state = State.RESUMED\n        self.history.append(State.RESUMED)\n        return self.state")
 p.write_text(t, encoding="utf-8")
 print("  installed wheel patched back to the old bypass")

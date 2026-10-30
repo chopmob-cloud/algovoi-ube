@@ -52,6 +52,11 @@ LEGAL = {
     State.RESUMED: {State.ANOMALY},
 }
 
+#: Held only by resume(). The REVERIFY -> RESUMED edge is declared in LEGAL so a
+#: governing regime can withdraw it, but walking it requires this token, so the
+#: table is not a second, unguarded route to the state resume() guards.
+_RESUME_TOKEN = object()
+
 
 class IllegalTransition(RuntimeError):
     pass
@@ -167,12 +172,24 @@ class Lifecycle:
         self.history: list[State] = [state]
         self.receipt: dict = {}
 
-    def to(self, new_state: State) -> State:
+    def to(self, new_state: State, *, _resume_token: object | None = None) -> State:
         allowed = LEGAL.get(self.state, set())
         if new_state not in allowed:
             raise IllegalTransition(
                 f"{self.state.value} -> {new_state.value} is not a legal transition "
                 f"(allowed: {', '.join(sorted(s.value for s in allowed)) or 'none'})"
+            )
+        if new_state is State.RESUMED and _resume_token is not _RESUME_TOKEN:
+            # The edge stays declared in the table, so it remains enumerable and
+            # withdrawable, but it is not a public transition. Guarding only the
+            # caller left the table as an unguarded parallel route to the state
+            # the caller guards, which is the whole fail-open this repository
+            # keeps rediscovering: a property enforced in one function rather
+            # than at the point where the outcome is produced.
+            raise IllegalTransition(
+                "RESUMED is reachable only through resume() with a recorded basis; "
+                "the REVERIFY -> RESUMED edge is declared so it can be withdrawn, "
+                "not so it can be walked directly"
             )
         self.state = new_state
         self.history.append(new_state)
@@ -206,13 +223,19 @@ class Lifecycle:
         """PAUSE -> ROLLBACK -> REVERIFY -> RESUMED.
 
         The last hop goes through the table like every other transition, so an
-        undeclared edge is refused rather than assumed.
+        undeclared edge is refused rather than assumed, and it requires a token
+        only this method holds, so the table is not a second route to RESUMED.
+
+        Every guard runs before the chain advances. Refusing after moving to
+        REVERIFY left the object one table-legal transition away from the very
+        state it had just refused, which made ``revocation_irreversible``
+        defeatable with a single ``to(State.RESUMED)``. A refusal now leaves the
+        chain in PAUSE, exactly where the caller left it.
 
         ``revocation_irreversible`` models the case where a governing regime
         makes revocation final (eIDAS Art. 28(4) is the instance in scope). What
-        becomes unavailable is the REVERIFY -> RESUMED edge, and the chain stays
-        in REVERIFY. No lawful successor reaches RESUMED, and no extra state was
-        needed to say so.
+        becomes unavailable is the REVERIFY -> RESUMED edge, and no extra state
+        was needed to say so.
 
         ``basis`` is the resume basis from :mod:`algovoi_ube.resume`. It is
         required in substance, not only in signature: a call with no basis is
@@ -222,35 +245,29 @@ class Lifecycle:
         """
         if self.state is not State.PAUSE:
             raise IllegalTransition(f"cannot resume from {self.state.value}")
-        self.to(State.ROLLBACK)
-        self.to(State.REVERIFY)
 
         if revocation_irreversible:
             raise IllegalTransition(
                 "REVERIFY -> RESUMED is unavailable: the revocation is final under "
-                "the governing regime, so the chain remains in REVERIFY"
+                "the governing regime, so the chain remains in PAUSE and no "
+                "transition from here reaches RESUMED"
             )
 
-        if basis is not None:
-            from .resume import decide_resume
-
-            decision = decide_resume(signature_valid=True, basis=basis)
-            if not decision.allowed:
-                raise IllegalTransition(
-                    f"resume refused on basis: {decision.reason}"
-                )
-            self.receipt = decision.receipt
-        else:
-            # A resume with no basis at all is the same fail-open as a basis with
-            # no evidence attached: the chain reaches RESUMED having established
-            # nothing about why the halt was lifted. Callers that only exercise
-            # the irreversible-revocation refusal never reach here, so refusing
-            # None costs them nothing.
+        if basis is None:
             raise IllegalTransition(
                 "resume refused: a resume must carry a basis (evidence or "
                 "exemption); reaching RESUMED on no basis records nothing about "
                 "why the halt was lifted"
             )
 
-        self.to(State.RESUMED)
+        from .resume import decide_resume
+
+        decision = decide_resume(signature_valid=True, basis=basis)
+        if not decision.allowed:
+            raise IllegalTransition(f"resume refused on basis: {decision.reason}")
+
+        self.to(State.ROLLBACK)
+        self.to(State.REVERIFY)
+        self.receipt = decision.receipt
+        self.to(State.RESUMED, _resume_token=_RESUME_TOKEN)
         return self.state

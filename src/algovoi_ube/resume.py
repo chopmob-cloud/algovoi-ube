@@ -150,6 +150,18 @@ class ResumeBasis:
                 raise ResumeRefused(
                     f"exemption covers {EXEMPTION_COVERS}, not {self.covers!r}"
                 )
+            # An exemption is someone accepting a risk. Without a reason and an
+            # accountable actor it records that a risk was accepted and nothing
+            # about why or by whom, which is the same fail-open as a basis with
+            # no substance: the field is present, the record says nothing.
+            # JustificationReceipt already requires both, so the two
+            # representations of an exemption must not disagree.
+            if not self.exemption_reason.strip() or not self.exemption_actor.strip():
+                raise ResumeRefused(
+                    "an exemption basis must record why the risk was accepted and "
+                    "who accepted it; an exemption with no reason and no "
+                    "accountable actor is an accepted risk that nobody owns"
+                )
 
     @property
     def permits_resume(self) -> bool:

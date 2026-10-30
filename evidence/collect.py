@@ -311,20 +311,38 @@ def finding_resume_edge() -> dict:
     try:
         life.resume(revocation_irreversible=True)
     except IllegalTransition:
-        refused = life.state is State.REVERIFY
+        # The refusal must leave the chain where it started. Advancing to
+        # REVERIFY and then refusing parked it one table-legal transition from
+        # the state it had just refused, which made the guarantee defeatable.
+        refused = life.state is State.PAUSE
+    # And the declared edge must not be walkable directly.
+    probe = Lifecycle()
+    for state in (State.GATE_PASSED, State.ACTIVE, State.ANOMALY, State.PAUSE,
+                  State.ROLLBACK, State.REVERIFY):
+        probe.to(state)
+    try:
+        probe.to(State.RESUMED)
+        edge_walkable = True
+    except IllegalTransition:
+        edge_walkable = False
 
     # And that no terminal state was invented to express it.
     terminal_invented = hasattr(State, "REVOKED")
 
     return {
         "id": "F7",
-        "claim": "The REVERIFY to RESUMED edge is a declared transition and can be withdrawn without inventing a terminal state, so irreversibility lives in the missing edge rather than in a stuck label",
-        "method": "inspect the transition table, then attempt a resume under an irreversible revocation and confirm the chain stays in REVERIFY",
+        "claim": "The REVERIFY to RESUMED edge is a declared transition that can be withdrawn without inventing a terminal state, it cannot be walked directly without a recorded basis, and an irreversible-revocation refusal leaves the chain where it started, so irreversibility lives in the missing edge rather than in a stuck label",
+        "method": "inspect the transition table, attempt a resume under an irreversible revocation and confirm the chain stays in PAUSE, then walk the declared edge directly and confirm it is refused",
         "edge_declared_in_table": declared,
         "irreversible_revocation_withdraws_it": refused,
+        "declared_edge_walkable_directly": edge_walkable,
         "terminal_state_invented": terminal_invented,
         "state_space_size": len(list(State)),
-        "verdict": "confirmed" if declared and refused and not terminal_invented else "refuted",
+        "verdict": (
+            "confirmed"
+            if declared and refused and not edge_walkable and not terminal_invented
+            else "refuted"
+        ),
     }
 
 
@@ -365,6 +383,14 @@ def finding_resume_basis() -> dict:
         }
     else:
         lifecycle_no_basis = {"refused": False, "error": None, "state": life.state.value}
+    # An exemption basis with no reason and no accountable actor: a basis that is
+    # present but says nothing about why the risk was accepted or by whom.
+    try:
+        ResumeBasis(basis=Basis.EXEMPTION.value, covers="policy_violation")
+    except Exception as exc:  # noqa: BLE001 - the point is that it is refused
+        empty_exemption = {"refused": True, "error": str(exc)}
+    else:
+        empty_exemption = {"refused": False, "error": None}
     on_evidence = decide_resume(
         signature_valid=True,
         basis=ResumeBasis(
@@ -402,6 +428,7 @@ def finding_resume_basis() -> dict:
             "error": empty_evidence["error"],
         },
         "lifecycle_no_basis": lifecycle_no_basis,
+        "empty_exemption_basis": empty_exemption,
         "on_evidence": {"allowed": on_evidence.allowed, "wire_value": on_evidence.wire_value},
         "revoked_delegation": {"allowed": revoked.allowed, "wire_value": revoked.wire_value},
         "verdict": (
@@ -410,6 +437,7 @@ def finding_resume_basis() -> dict:
             and not empty_evidence["allowed"]
             and lifecycle_no_basis["refused"]
             and lifecycle_no_basis["state"] != "RESUMED"
+            and empty_exemption["refused"]
             and on_evidence.allowed
             and not revoked.allowed
             else "refuted"
@@ -424,7 +452,16 @@ def finding_exemption_boundaries() -> dict:
     attempted = []
     for cause in ("authority_revoked", "authority_not_determined", "policy_violation"):
         try:
-            basis = ResumeBasis(basis=Basis.EXEMPTION.value, covers=cause)
+            # A complete exemption, so this finding measures the boundary rather
+            # than the substance rule: an exemption with no reason and no actor is
+            # refused by F8's case, and conflating the two would hide which rule
+            # fired.
+            basis = ResumeBasis(
+                basis=Basis.EXEMPTION.value,
+                covers=cause,
+                exemption_reason="business critical release window",
+                exemption_actor="manager@example.com",
+            )
             attempted.append({"covers": cause, "constructed": True, "receipt": basis.as_dict()})
         except ResumeRefused as exc:
             attempted.append({"covers": cause, "constructed": False, "refused_because": str(exc)})
