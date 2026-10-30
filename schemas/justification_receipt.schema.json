@@ -1,0 +1,182 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/chopmob-cloud/algovoi-ube/schemas/justification_receipt.schema.json",
+  "title": "NTI-1 justification_receipt (exemption)",
+  "description": "A signed record of an accepted exemption under Voluntary Oblivious Compliance. The protocol verifies the signature and records the receipt; it does not evaluate the justification. Two boundaries are structural rather than advisory: halt.cause admits only policy_violation, and exemption_covers is fixed, so a receipt that purports to exempt a revocation or an undetermined authority cannot be expressed at all.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "receipt_version",
+    "receipt_id",
+    "issued_at",
+    "request_id",
+    "policy_id",
+    "halt",
+    "decision",
+    "resume_basis",
+    "exemption_covers",
+    "exemption_does_not_cover",
+    "justification",
+    "grader",
+    "principal",
+    "validity",
+    "signature"
+  ],
+  "properties": {
+    "receipt_version": {
+      "type": "string",
+      "const": "1.0",
+      "description": "Schema version. A change to the boundary rules is a version change, not a field change."
+    },
+    "receipt_id": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Unique identifier for this receipt. MUST NOT be reused."
+    },
+    "issued_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "RFC 3339 UTC timestamp of signature."
+    },
+    "request_id": {
+      "type": "string",
+      "minLength": 1,
+      "description": "The halted action this receipt applies to. Binds the receipt to one call so it cannot be replayed onto another."
+    },
+    "policy_id": {
+      "type": "string",
+      "minLength": 1,
+      "description": "The policy that denied the action."
+    },
+    "halt": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["cause", "policy_id", "reason"],
+      "properties": {
+        "cause": {
+          "type": "string",
+          "enum": ["policy_violation"],
+          "description": "The only halt an exemption may answer. authority_revoked and authority_not_determined are deliberately absent from this enumeration, so an exempted revocation is not expressible."
+        },
+        "policy_id": { "type": "string", "minLength": 1 },
+        "reason": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Why policy denied the action. Recorded, not evaluated."
+        }
+      }
+    },
+    "decision": {
+      "type": "string",
+      "const": "exemption"
+    },
+    "resume_basis": {
+      "type": "string",
+      "const": "exemption",
+      "description": "Fixed. An evidence based resume is a different object and MUST NOT be represented by this schema."
+    },
+    "exemption_covers": {
+      "type": "array",
+      "const": ["policy_violation"]
+    },
+    "exemption_does_not_cover": {
+      "type": "array",
+      "const": ["authority_revoked", "authority_not_determined"]
+    },
+    "justification": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["reason"],
+      "properties": {
+        "reason": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096,
+          "description": "The accountability layer's stated reason. Free text by design: the protocol does not read it. Anything that needs to be counted belongs in a closed field, not here."
+        },
+        "evidence_refs": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 },
+          "description": "Optional references the grader relied on. Recorded for the auditor, not checked by the protocol."
+        }
+      }
+    },
+    "grader": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["grader_id", "grader_role", "mandate_id"],
+      "properties": {
+        "grader_id": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The automated agent grader that accepted the risk and signed."
+        },
+        "grader_role": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The role under which it acted. An auditor needs this to tell a compliance officer from a release manager."
+        },
+        "mandate_id": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The mandate under which the grader was authorised to accept risk. A signature proves which grader signed; the mandate is what shows it was ever entitled to. A receipt without one is a statement about a key, not about authority."
+        },
+        "mandate_ref": {
+          "type": "object",
+          "description": "The signed mandate itself, embedded so an auditor can verify the authority chain without a second lookup. Its issuer must not be the grader: self authorisation is not authority."
+        }
+      }
+    },
+    "principal": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["principal_id", "delegation_id"],
+      "properties": {
+        "principal_id": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The legal party the agent acts for."
+        },
+        "delegation_id": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The delegation under which the halted action was taken, so a reader can check its state at resume time."
+        }
+      }
+    },
+    "validity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["not_after"],
+      "properties": {
+        "not_after": {
+          "type": "string",
+          "format": "date-time",
+          "description": "When the exemption stops being usable. An exemption without an end is a permanent waiver, so this is required even when empty elsewhere."
+        }
+      }
+    },
+    "chain_event_hash": {
+      "type": "string",
+      "description": "The audit event this receipt is attached to, binding the exemption into the tamper evident chain."
+    },
+    "signature": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["alg", "key_id", "value"],
+      "properties": {
+        "alg": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Signature algorithm. The specification mandates a post-quantum scheme (CRYSTALS-Dilithium5); the harness uses HMAC-SHA256 to test protocol shape only."
+        },
+        "key_id": { "type": "string", "minLength": 1 },
+        "value": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Signature over the RFC 8785 canonical form of the receipt with the signature object removed."
+        }
+      }
+    }
+  }
+}

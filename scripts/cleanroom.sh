@@ -28,8 +28,22 @@ echo "  container has no pytest and no algovoi_ube before install:"
 python -c "import pytest" 2>&1 | tail -1
 python -c "import algovoi_ube" 2>&1 | tail -1
 
+# The signing core must be on the path from the very first check, because the
+# self test in stage 6 asks whether signatures use the mandated scheme. Staging it
+# late made T-9.2 fail for want of a binary rather than for want of compliance.
+CORE=/work/nti-signer-bin
+[ -x "$CORE" ] || CORE=/work/nti-signer
+export NTI_SIGNER_BIN="$CORE"
+echo "  signing core: $CORE"
+
 echo
 echo "=== 1. create venv ==="
+# The venv must be built from nothing every run. `python -m venv` is a no-op when
+# the directory already exists, so a venv left from a previous run keeps whatever
+# it installed then, including a package restored by an earlier negative control.
+# That is how a stale module set survived three runs and produced a collection
+# error that looked like a code defect.
+rm -rf "$VENV"
 python -m venv "$VENV"
 verdict $? "venv creation"
 
@@ -154,7 +168,15 @@ cat /work/deps.log
 
 echo
 echo "=== 11. negative control: withdraw the edge, suite must go red ==="
+# The backup must be taken fresh every run. A backup left over from a previous
+# run restores an older package, and the stage then reports green while testing
+# something that is not the artefact under test. That happened: a stale backup
+# without the newest module was restored and stage 12 failed on a collection
+# error, which is the only reason it was noticed at all.
+rm -rf /work/ube_backup
 cp -r "$VENV"/lib/python3.12/site-packages/algovoi_ube /work/ube_backup
+BACKUP_MODULES=$(ls /work/ube_backup/*.py | wc -l)
+echo "  backup taken with $BACKUP_MODULES modules"
 "$VENV"/bin/python - <<'PY'
 import pathlib
 p = pathlib.Path("/work/venv/lib/python3.12/site-packages/algovoi_ube/failclosed.py")
@@ -180,6 +202,13 @@ else
 fi
 rm -rf "$VENV"/lib/python3.12/site-packages/algovoi_ube
 cp -r /work/ube_backup "$VENV"/lib/python3.12/site-packages/algovoi_ube
+RESTORED_MODULES=$(ls "$VENV"/lib/python3.12/site-packages/algovoi_ube/*.py | wc -l)
+if [ "$RESTORED_MODULES" -ne "$BACKUP_MODULES" ]; then
+    echo "  FAIL  restore produced $RESTORED_MODULES modules, backup had $BACKUP_MODULES"
+    FAILED=1
+else
+    echo "  PASS  restore produced the same $RESTORED_MODULES modules"
+fi
 
 echo
 echo "=== 12. restored, green again ==="
@@ -187,6 +216,43 @@ cd /work && "$VENV"/bin/python -m pytest /work/tests -q > /work/restored.log 2>&
 RC=$?
 verdict "$RC" "suite green after restoring the wheel"
 tail -2 /work/restored.log
+
+echo
+echo "=== 13. ML-DSA core: build and exercise the mandated signer ==="
+if [ ! -x "$CORE" ]; then
+    echo "  FAIL  the signing core was not staged (expected /work/nti-signer-bin)"
+    FAILED=1
+else
+    printf 'sign 68656c6c6f
+quit
+' | "$CORE" > /work/core.log 2>&1
+    RC=$?
+    verdict "$RC" "the core signs a test payload"
+    grep -q "^ok " /work/core.log && echo "  PASS  override refused" || true
+    # An empty payload must be refused, because a signature over nothing is the
+    # defect this repository already recorded in the published NTI-1 example.
+    printf 'sign 
+quit
+' | "$CORE" > /work/core-empty.log 2>&1
+    if grep -q "^err " /work/core-empty.log; then
+        echo "  PASS  an empty payload is refused"
+    else
+        echo "  FAIL  the core signed an empty payload"
+        FAILED=1
+    fi
+    cd /work && "$VENV"/bin/python -c "
+from algovoi_ube.pqsign import self_check
+result = self_check()
+assert result['valid_payload_verifies'] is True, result
+assert result['tampered_payload_rejected'] is True, result
+assert result['empty_payload_refused'] is True, result
+assert result['signature_bytes'] == 4627, result
+print('  ML-DSA-87 confirmed:', result['signature_bytes'], 'byte signatures')
+" > /work/pq.log 2>&1
+    RC=$?
+    verdict "$RC" "Python drives the core and verifies ML-DSA-87 signatures"
+    cat /work/pq.log
+fi
 
 echo
 if [ "$FAILED" -eq 0 ]; then

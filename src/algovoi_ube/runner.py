@@ -100,6 +100,83 @@ def self_test() -> int:
     events = _self_test_events()
     reloaded = _self_test_events()
     from .resume import WIRE_VALUES, decide_resume
+    from .voc import AgentGrader, HmacSigner, evaluate as voc_evaluate, resume_on_exemption
+
+    voc_signer = HmacSigner(b"harness-self-test-key", key_id="self-test")
+    from .mandate import GraderMandate, MandateRegistry, sign_mandate
+
+    issuer_signer = HmacSigner(b"harness-issuer-key", key_id="issuer-self-test")
+    self_mandate = GraderMandate(
+        mandate_id="m-self-test",
+        issuer_id="principal-self-test",
+        issuer_role="risk-committee",
+        grader_id="grader-self-test",
+        issued_at="2026-10-30T09:00:00Z",
+        not_after="2026-12-31T00:00:00Z",
+        policies=("pol-value-limit",),
+        principals=("principal-self-test",),
+        max_value=10000,
+        max_exemptions=50,
+    )
+    self_mandate_payload = sign_mandate(self_mandate, issuer_signer)
+    self_mandate_registry = MandateRegistry()
+    self_mandate_registry.register(self_mandate_payload)
+
+    voc_grader = AgentGrader(
+        grader_id="grader-self-test",
+        grader_role="compliance-officer",
+        signer=voc_signer,
+        mandate=self_mandate,
+        mandate_payload=self_mandate_payload,
+        mandate_registry=self_mandate_registry,
+    )
+
+    def make_receipt() -> dict:
+        return voc_grader.sign_exemption(
+            receipt_id="r-self-test",
+            issued_at="2026-10-30T16:00:00Z",
+            request_id="req-self-test",
+            policy_id="pol-value-limit",
+            halt_cause="policy_violation",
+            reason="self test exemption",
+            delegation_id="d-self-test",
+            principal_id="principal-self-test",
+            valid_until="2026-10-30T18:00:00Z",
+            value=100,
+        )
+
+    def voc_resume(*, outcome, receipt):
+        return resume_on_exemption(outcome=outcome, receipt=receipt, signer=voc_signer)
+
+    # The boundary this harness declares for itself. It has to be the posture
+    # NTI permits, and T-9.1 checks it rather than trusting this comment.
+    from .boundary import Boundary
+
+    boundary_value = Boundary.SUB_CALL.value
+
+    # The signature scheme, and a real signature length measured rather than
+    # assumed. If the mandated core is not built, the check reports that rather
+    # than passing on a placeholder.
+    signature_algorithm = "HMAC-SHA256"
+    signature_bytes = 32
+    probe_registry = None
+    try:
+        from .pqsign import SIGNATURE_BYTES, Dilithium5Signer
+
+        with Dilithium5Signer() as probe:
+            signature_algorithm = probe.algorithm
+            signed = probe.sign_digest(b"self test payload")
+            signature_bytes = len(signed.split(":", 1)[1]) // 2 if ":" in signed else len(signed) // 2
+            assert signature_bytes == SIGNATURE_BYTES
+    except Exception as exc:  # noqa: BLE001
+        print(f"  ML-DSA core: unavailable ({exc.__class__.__name__}), T-9.2 will fail")
+
+    try:
+        from .registry import MerkleRevocationRegistry
+
+        probe_registry = MerkleRevocationRegistry()
+    except Exception as exc:  # noqa: BLE001
+        print(f"  registry: unavailable ({exc.__class__.__name__})")
 
     report = run_all(
         decide=_self_test_decide,
@@ -108,6 +185,20 @@ def self_test() -> int:
         resolve_status=_failing_resolver,
         decide_resume=decide_resume,
         wire_values=WIRE_VALUES,
+        voc_evaluate=voc_evaluate,
+        voc_resume=voc_resume,
+        voc_receipt=make_receipt,
+        boundary_declared=boundary_value,
+        signature_algorithm=signature_algorithm,
+        signature_bytes=signature_bytes,
+        registry=probe_registry,
+        grader_factory=lambda: AgentGrader(
+            grader_id="grader-bare",
+            grader_role="compliance-officer",
+            signer=HmacSigner(b"bare-key", key_id="bare"),
+        ),
+        grader=voc_grader,
+        grader_mandate=self_mandate,
     )
     for check in report.checks:
         mark = "pass" if check.passed else "FAIL"

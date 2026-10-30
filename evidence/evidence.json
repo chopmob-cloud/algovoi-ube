@@ -1,5 +1,5 @@
 {
-  "collected_at": "2026-10-30T12:12:19Z",
+  "collected_at": "2026-10-30T18:51:25Z",
   "tool": "algovoi-ube evidence collector",
   "environment": {
     "python": "3.12.10",
@@ -341,6 +341,165 @@
       "without_receipt": "pause",
       "identical": true,
       "in_closed_set": true,
+      "verdict": "confirmed"
+    },
+    {
+      "id": "F11",
+      "claim": "A policy violation is denied under STRICT and paused under VOC, and a revocation halts under VOC rather than becoming an exemption candidate",
+      "strict": {
+        "wire_value": "deny",
+        "paused": false
+      },
+      "voc": {
+        "wire_value": "pause",
+        "paused": true
+      },
+      "allowed": {
+        "wire_value": "allow"
+      },
+      "revoked_under_voc": {
+        "wire_value": "pause"
+      },
+      "verdict": "confirmed"
+    },
+    {
+      "id": "F12",
+      "claim": "A receipt that purports to exempt a revocation or an undetermined authority cannot be expressed: the schema admits only policy_violation, the constructor refuses the others, and the grader will not sign them",
+      "schema_source_sha256": "671faad963c2b21d59828106ab6c5182b1e3cf2e0625ad506fbd84af81eed24d",
+      "schema_permitted_causes": [
+        "policy_violation"
+      ],
+      "constructor_refused": {
+        "authority_revoked": true,
+        "authority_not_determined": true,
+        "policy_violation": false
+      },
+      "grader_refused": {
+        "authority_revoked": true,
+        "authority_not_determined": true
+      },
+      "verdict": "confirmed"
+    },
+    {
+      "id": "F13",
+      "claim": "A receipt whose justification is edited after signing does not resume the halted action, so the signature is load bearing rather than decorative",
+      "clean_receipt": {
+        "wire_value": "resume"
+      },
+      "tampered_receipt": {
+        "wire_value": "deny",
+        "reason": "the receipt signature did not verify, so the pause stands"
+      },
+      "verdict": "confirmed"
+    },
+    {
+      "id": "F14",
+      "claim": "The canonicaliser follows RFC 8785 where it differs from Python's json: ECMAScript number layout, UTF-16 key ordering, and literal non-ASCII rather than \\uXXXX escaping",
+      "number_vectors": [
+        {
+          "bits": "0000000000000000",
+          "expected": "0",
+          "got": "0",
+          "ok": true
+        },
+        {
+          "bits": "8000000000000000",
+          "expected": "0",
+          "got": "0",
+          "ok": true
+        },
+        {
+          "bits": "3eb0c6f7a0b5ed8d",
+          "expected": "0.000001",
+          "got": "0.000001",
+          "ok": true
+        },
+        {
+          "bits": "3eb0c6f7a0b5ed8e",
+          "expected": "0.0000010000000000000002",
+          "got": "0.0000010000000000000002",
+          "ok": true
+        },
+        {
+          "bits": "444b1ae4d6e2ef50",
+          "expected": "1e+21",
+          "got": "1e+21",
+          "ok": true
+        },
+        {
+          "bits": "44b52d02c7e14af6",
+          "expected": "1e+23",
+          "got": "1e+23",
+          "ok": true
+        },
+        {
+          "bits": "7fefffffffffffff",
+          "expected": "1.7976931348623157e+308",
+          "got": "1.7976931348623157e+308",
+          "ok": true
+        }
+      ],
+      "utf16_key_ordering_correct": true,
+      "non_ascii_emitted_literally": true,
+      "verdict": "confirmed"
+    },
+    {
+      "id": "F15",
+      "claim": "Signatures use CRYSTALS-Dilithium5 as ML-DSA-87 in an isolated process, so the key never enters the Python process that assembles the receipt",
+      "method": "sign a real payload in the Rust core, verify it, tamper with it, and attempt an empty payload",
+      "measured": {
+        "algorithm": "ML-DSA-87",
+        "key_id": "6f159636ecf31e7d",
+        "verify_key_bytes": 2592,
+        "signature_bytes": 4627,
+        "core": "C:\\algo\\platform\\algovoi-ube\\rust\\nti-signer\\target\\release\\nti-signer.exe"
+      },
+      "expected_signature_bytes": 4627,
+      "expected_verify_key_bytes": 2592,
+      "valid_payload_verifies": true,
+      "tampered_payload_rejected": true,
+      "empty_payload_refused": true,
+      "verdict": "confirmed"
+    },
+    {
+      "id": "F16",
+      "claim": "A capability proof built against a superseded registry root is refused at the boundary, while the same proof still verifies against the historical root for audit",
+      "method": "prove membership, revoke, then verify against the current and the pinned root",
+      "root_before": "2cc1ed7d5e2add59",
+      "root_after": "39a37abed3785b64",
+      "fresh_proof_verified": true,
+      "stale_proof_refused": true,
+      "stale_reason": "the proof was built for root 2cc1ed7d5e2a but 39a37abed378 is the root in force, so it is stale",
+      "historical_root_still_verifies": true,
+      "capability_live_after_revocation": false,
+      "verdict": "confirmed"
+    },
+    {
+      "id": "F17",
+      "claim": "The declared boundary lets the atomic call in flight finish and refuses the next one, which is the posture NTI requires, and the effect boundary that would interrupt mid call is identifiable as non-compliant",
+      "sub_call_in_flight": {
+        "allowed": true,
+        "interrupted": false,
+        "next_call_allowed": false
+      },
+      "effect_in_flight": {
+        "allowed": false,
+        "interrupted": true
+      },
+      "verdict": "confirmed"
+    },
+    {
+      "id": "F18",
+      "claim": "An automated grader cannot accept risk on its own authority: it cannot issue its own mandate, it signs nothing without one, and the mandate's policy scope, principal scope, value ceiling, expiry and revocation are all enforced at the moment of signing",
+      "self_issued_mandate_refused": true,
+      "no_mandate_refused": true,
+      "within_mandate": "signed",
+      "outside_policy_scope": "refused",
+      "outside_principal_scope": "refused",
+      "over_value_ceiling": "refused",
+      "lapsed_mandate": "refused",
+      "after_revocation": "refused",
+      "receipt_names_its_mandate": "m-1",
       "verdict": "confirmed"
     }
   ]

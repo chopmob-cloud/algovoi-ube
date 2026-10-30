@@ -14,17 +14,27 @@ standard.
 
 ## What it does
 
-Four things, all of them checkable:
+Seven things, all of them checkable:
 
 1. **Recomputes an audit chain.** NTI-1 Pillar 4 requires a SHA-256 chained
    trail where tampering with any past event breaks verification. This
    recomputes every hash and every parent link from the raw event data.
-2. **Runs the five testable requirements**, T-1.1 through T-5.1, each quoting
-   the clause it comes from. A failure points at the document, not an opinion.
+2. **Runs the testable requirements**, T-1.1 through T-5.1 plus the resume,
+   VOC, signature and registry checks added here, each quoting the clause it
+   comes from. A failure points at the document, not an opinion.
 3. **Implements the fail-closed rule** from section 6.1, including the
    `incomplete_check` receipt with its three legal reasons, and the LGD state
    machine with only legal transitions allowed.
-4. **States the Keystone coverage honestly**, pillar by pillar, rather than
+4. **Signs with the mandated scheme.** CRYSTALS-Dilithium5 as ML-DSA-87, in a
+   separate Rust process, so the key never enters the process that assembles the
+   receipt.
+5. **Implements the revocation registry** as a Merkle accumulator whose root
+   changes on revocation, so a token proved against an old root is refused at the
+   boundary.
+6. **Implements Voluntary Oblivious Compliance**: STRICT fails closed, VOC pauses
+   and requires a signed exemption, and the grader acts only under a mandate
+   issued by someone else.
+7. **States the Keystone coverage honestly**, pillar by pillar, rather than
    claiming the whole standard.
 
 ## Install and run
@@ -43,8 +53,27 @@ Or without installing:
 python conformance/run.py --self-test
 ```
 
-No runtime dependencies. The harness is stdlib only, so it runs anywhere Python
-3.10 or newer does.
+No Python runtime dependencies. The harness is stdlib only, so it runs anywhere
+Python 3.10 or newer does.
+
+The signature scheme is the exception, and it is deliberately not a Python
+package. NTI-1 mandates CRYSTALS-Dilithium5, and the AIW paper requires the key to
+live outside the agent's context, so `rust/nti-signer` is a separate binary that
+holds the key and signs over a pipe:
+
+```bash
+./scripts/build_signer.sh          # builds rust/nti-signer
+export NTI_SIGNER_BIN=...          # or let find_core locate it
+```
+
+The build needs Rust 1.85 or newer, because the ML-DSA crate pulls dependencies
+that use the 2024 edition. `build_signer.sh` checks the version first and tells you
+so rather than letting the failure surface from inside a dependency, and it gives
+the container command for an older toolchain.
+
+When that binary is absent every signing path raises. There is no fallback to a
+weaker signer, because a silent downgrade of the signature is a silent downgrade
+of the whole claim.
 
 ## The evidence
 
@@ -55,7 +84,7 @@ than to a moment. `evidence/evidence.json` holds the same findings in machine
 readable form. Re-run the collector and either the same verdicts come out or the
 claim was wrong.
 
-Ten findings, all currently confirmed:
+Eighteen findings, all currently confirmed:
 
 | ID | Finding | Verdict |
 | F1 | The published NTI-1 conformance chain recomputes exactly under its documented formula | confirmed |
@@ -68,6 +97,14 @@ Ten findings, all currently confirmed:
 | F8 | A valid signature alone does not reach RESUMED; a basis is required | confirmed |
 | F9 | An exemption covers a policy violation and cannot cover a revocation or an unknown | confirmed |
 | F10 | The wire value does not depend on the receipt being present | confirmed |
+| F11 | STRICT denies a violation and VOC pauses, and a revocation halts under both | confirmed |
+| F12 | A receipt exempting a revocation cannot be expressed in the schema, the constructor or the grader | confirmed |
+| F13 | A receipt edited after signing does not resume the action | confirmed |
+| F14 | The canonicaliser matches RFC 8785 on numbers, UTF-16 key order and non-ASCII | confirmed |
+| F15 | Signatures use ML-DSA-87 in an isolated process, and the key never crosses the boundary | confirmed |
+| F16 | A proof built against a superseded registry root is refused, while the historical root still verifies | confirmed |
+| F17 | The declared boundary lets the atomic call finish and refuses the next one, as NTI requires | confirmed |
+| F18 | A grader cannot issue its own mandate, signs nothing without one, and its bounds are enforced at signing | confirmed |
 
 The collector refutes its own claims when they do not hold. F2 was originally
 written one way, the collector refuted it, and the claim was tightened to what
@@ -153,11 +190,12 @@ the place the argument is actually about.
 ## Validated on VM2
 
 The wheel is built and validated in a clean-room Docker container on VM2, with no
-network during install, so the artefact set has to be self sufficient. Twelve
+network during install, so the artefact set has to be self sufficient. Thirteen
 stages, all passing: offline install, import confirmed to resolve to the wheel
-rather than a staged source tree, 42 tests collected and 42 passing, the eleven
+rather than a staged source tree, 153 tests collected and 153 passing, the twenty
 check self test, the evidence findings re-derived from the installed wheel, sdist
-cleanliness, `pip check`, and no runtime dependencies.
+cleanliness, `pip check`, no runtime dependencies, and the ML-DSA core signing and
+refusing an empty payload.
 
 The negative control matters most. After a green run, the installed wheel is
 patched back to the old behaviour, removing the declared edge and restoring the
@@ -172,6 +210,68 @@ scp scripts/cleanroom.sh vm2:/root/ube-conformance/
 ssh vm2 'docker run -d --name ube-conformance-clean -v /root/ube-conformance:/work python:3.12-slim sleep infinity'
 ssh vm2 'docker exec ube-conformance-clean sh /work/cleanroom.sh'
 ```
+
+## Voluntary Oblivious Compliance and the agent grader
+
+Issue 21 asks for the VOC model: a `compliance_mode` caveat that is `STRICT` or
+`VOC`, a signed `justification_receipt`, and an automated grader that holds the
+authority to accept the risk. The reason it exists is stated best by the person
+who raised it. A human in the loop for every exception produces "Mother, may I"
+fatigue, and a human who approves everything is not a control.
+
+`voc.py` implements the flow. `STRICT` fails closed on a violation with no pause
+and no receipt. `VOC` raises ANOMALY, pauses, and requests an exemption. The
+grader signs a receipt, the protocol verifies the signature, and the protocol
+deliberately does not read the opinion inside the receipt. Recording that it did
+not form a view is the point: an unrecorded absence of judgement is invisible to
+an auditor.
+
+Three limits are enforced in code rather than in prose, because a boundary that
+lives only in documentation is one somebody routes around:
+
+- the receipt schema admits `policy_violation` as the only halt cause, so a
+  receipt exempting a revocation cannot be expressed at all;
+- the constructor refuses to build one, and the grader refuses to sign one;
+- the grader has a ceiling on exemptions per window, so a misconfiguration
+  cannot quietly become a blanket waiver, and it logs every refusal.
+
+`schemas/justification_receipt.schema.json` is the published schema. The
+signature covers the RFC 8785 canonical form of the receipt, so the same receipt
+serialises identically wherever it is verified. `canonical.py` implements that
+scheme properly, including ECMAScript number layout, UTF-16 key ordering and
+literal non-ASCII, which is the part our earlier JCS-like hasher got wrong.
+
+## The signing core, the registry, and the grader's mandate
+
+Three pieces exist because NTI asks for them by name, and each closes a hole the
+protocol would otherwise have.
+
+**ML-DSA-87 in an isolated process.** NTI-1 mandates CRYSTALS-Dilithium5 and the
+AIW paper requires the key to sit outside the agent's context, on the argument
+that an agent holding the private key is an agent whose attacker holds it. A
+Python `sign()` function does not satisfy that, so `rust/nti-signer` is a separate
+binary: it generates the key, uses it, and never writes it anywhere. Python drives
+it over a line protocol and can ask for a signature or check one, nothing more.
+Measured sizes are the FIPS 204 ones, 2592 byte verifying key and 4627 byte
+signature, and the core refuses to sign an empty payload because a signature over
+nothing is the defect F2 records.
+
+**A Merkle revocation registry.** The paper describes a root that updates on
+revocation and tokens verified against the *latest* root, so a token issued
+mid-chain is rejected at the boundary. `registry.py` implements that as an
+accumulator, deliberately separate from the audit chain, because one grows and the
+other is replaced. Inclusion and absence proofs, domain separated leaves, and a
+proof built before a revocation fails against the current root while still
+verifying against the pinned historical one.
+
+**The grader's mandate.** This is the hole the receipt does not close. A signature
+proves which grader signed, not that it was ever entitled to. So `mandate.py` adds
+a bounded, signed, revocable authorisation, and a grader cannot issue its own: self
+authorisation is not authority. The mandate names the policies it may exempt, the
+principals it may act for, a value ceiling, an expiry and an exemption count, all
+checked at the moment of signing. Revoking it stops the next signature. The
+receipt carries `mandate_id` and the signed mandate itself, so an auditor can
+answer "who allowed this automation to say yes" without reading prose.
 
 ## Licence
 

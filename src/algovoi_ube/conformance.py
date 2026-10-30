@@ -333,6 +333,276 @@ def t_7_4(report: Report, wire_values: tuple[str, ...], paused_decision: object)
     return check
 
 
+def t_8_1(report: Report, evaluate: Callable[..., object]) -> Check:
+    """T-8.1: STRICT must fail closed with no exception path."""
+    check = report.add(
+        Check(
+            "T-8.1",
+            "3.2 Pillar 2 and VOC flow",
+            "Under compliance_mode STRICT a policy violation MUST be denied with no "
+            "pause and no receipt",
+        )
+    )
+    try:
+        outcome = evaluate(mode="STRICT", policy_allows=False)
+    except Exception as exc:  # noqa: BLE001
+        check.detail = f"evaluate raised {exc.__class__.__name__}: {exc}"
+        return check
+    wire = getattr(outcome, "wire_value", "")
+    check.passed = wire == "deny" and getattr(outcome, "receipt", None) is None
+    check.detail = f"wire_value={wire!r}, receipt={getattr(outcome, 'receipt', None)!r}"
+    return check
+
+
+def t_8_2(report: Report, evaluate: Callable[..., object]) -> Check:
+    """T-8.2: VOC must pause and request an exemption."""
+    check = report.add(
+        Check(
+            "T-8.2",
+            "3.2 Pillar 2 and VOC flow",
+            "Under compliance_mode VOC a policy violation MUST pause and request an "
+            "exemption rather than proceeding or failing silently",
+        )
+    )
+    try:
+        outcome = evaluate(mode="VOC", policy_allows=False)
+    except Exception as exc:  # noqa: BLE001
+        check.detail = f"evaluate raised {exc.__class__.__name__}: {exc}"
+        return check
+    wire = getattr(outcome, "wire_value", "")
+    paused = getattr(outcome, "paused", None)
+    check.passed = wire == "pause" and paused is True
+    check.detail = f"wire_value={wire!r}, paused={paused!r}"
+    return check
+
+
+def t_8_3(report: Report, evaluate: Callable[..., object]) -> Check:
+    """T-8.3: no compliance mode may exempt a revocation or an unknown."""
+    check = report.add(
+        Check(
+            "T-8.3",
+            "VOC boundaries (i) and (ii)",
+            "An exemption MUST NOT cover authority_revoked or "
+            "authority_not_determined in either compliance mode",
+        )
+    )
+    failures = []
+    for mode in ("STRICT", "VOC"):
+        for cause in ("authority_revoked", "authority_not_determined"):
+            try:
+                outcome = evaluate(mode=mode, policy_allows=False, halt_cause=cause)
+            except Exception as exc:  # noqa: BLE001
+                failures.append(f"{mode}/{cause} raised {exc.__class__.__name__}")
+                continue
+            wire = getattr(outcome, "wire_value", "")
+            if wire in {"allow", "resume"}:
+                failures.append(f"{mode}/{cause} gave {wire}")
+    check.passed = not failures
+    check.detail = "; ".join(failures) if failures else "both causes halted in both modes"
+    return check
+
+
+def t_8_4(report: Report, evaluate: Callable[..., object], resume: Callable[..., object], make_receipt: Callable[[], dict]) -> Check:
+    """T-8.4: a receipt altered after signing must not resume anything.
+
+    The signature is the only integrity property the protocol has, so a receipt
+    whose reason was edited afterwards has to fail rather than resume.
+    """
+    check = report.add(
+        Check(
+            "T-8.4",
+            "justification_receipt integrity",
+            "A justification_receipt altered after signing MUST NOT resume the "
+            "halted action",
+        )
+    )
+    try:
+        paused = evaluate(mode="VOC", policy_allows=False)
+        receipt = make_receipt()
+        receipt["justification"]["reason"] = "edited after signing"
+        outcome = resume(outcome=paused, receipt=receipt)
+    except Exception as exc:  # noqa: BLE001
+        check.detail = f"raised {exc.__class__.__name__}: {exc}"
+        return check
+    wire = getattr(outcome, "wire_value", "")
+    # It must actively refuse, not merely fail to resume. An implementation that
+    # answers "allow" to a tampered receipt is worse than one that resumes,
+    # because it has stopped checking at all.
+    check.passed = wire in {"deny", "pause", "revoked"}
+    check.detail = (
+        f"wire_value={wire!r} for a tampered receipt"
+        if check.passed
+        else f"wire_value={wire!r} for a tampered receipt, which is not a refusal"
+    )
+    return check
+
+
+def t_9_1(report: Report, boundary_declared: str) -> Check:
+    """T-9.1: an NTI implementation must not halt mid tool call.
+
+    The AIW paper says a tool call cannot safely be interrupted mid flight without
+    corrupting external state, so the sidecar pauses at the boundary between
+    calls. A target that declares the effect boundary is not NTI compliant
+    however sound its reasoning, and that is worth checking rather than assuming.
+    """
+    check = report.add(
+        Check(
+            "T-9.1",
+            "AIW paper, the safe interruption point",
+            "An implementation claiming NTI-1 MUST NOT halt an atomic tool call mid "
+            "flight; it MUST declare the sub-call or invocation boundary",
+        )
+    )
+    permitted = {"sub_call", "invocation", "completion"}
+    check.passed = boundary_declared in permitted
+    check.detail = (
+        f"declared boundary is {boundary_declared!r}"
+        if check.passed
+        else f"declared boundary is {boundary_declared!r}, which permits a mid-call halt"
+    )
+    return check
+
+
+def t_9_2(report: Report, signature_algorithm: str, signature_bytes: int) -> Check:
+    """T-9.2: the signature scheme must be the one NTI-1 names."""
+    check = report.add(
+        Check(
+            "T-9.2",
+            "3.1 Pillar 1, CRYSTALS-Dilithium5",
+            "Signatures MUST use CRYSTALS-Dilithium5, which in FIPS 204 terms is "
+            "ML-DSA-87 at NIST security category 5",
+        )
+    )
+    acknowledged = signature_algorithm.upper().replace("_", "-")
+    accepted = {"ML-DSA-87", "DILITHIUM5", "CRYSTALS-DILITHIUM5", "ML-DSA5"}
+    # 4627 bytes is the ML-DSA-87 signature size from FIPS 204.
+    check.passed = acknowledged in accepted and signature_bytes == 4627
+    check.detail = (
+        f"algorithm {signature_algorithm!r} with {signature_bytes} byte signatures"
+    )
+    return check
+
+
+def t_9_3(report: Report, registry) -> Check:
+    """T-9.3: a token bound to a stale root must be refused."""
+    check = report.add(
+        Check(
+            "T-9.3",
+            "AIW paper, Merkle-chained revocation registry",
+            "A capability token verified against a superseded registry root MUST be "
+            "refused at the boundary",
+        )
+    )
+    try:
+        registry.register("cap-probe-a")
+        proof = registry.prove_membership("cap-probe-a")
+        root_before = registry.root
+        fresh_ok = registry.verify_membership(proof)
+        registry.revoke("cap-probe-a")
+        try:
+            registry.verify_membership(proof)
+            stale_refused = False
+        except Exception as exc:  # noqa: BLE001
+            stale_refused = "stale" in str(exc).lower() or "root" in str(exc).lower()
+        historical_ok = registry.verify_membership(proof, expect_root=root_before)
+    except Exception as exc:  # noqa: BLE001
+        check.detail = f"registry raised {exc.__class__.__name__}: {exc}"
+        return check
+    check.passed = fresh_ok and stale_refused and historical_ok
+    check.detail = (
+        f"fresh proof verified={fresh_ok}, stale proof refused={stale_refused}, "
+        f"historical root still verifies={historical_ok}"
+    )
+    return check
+
+
+def t_10_1(report: Report, grader_factory: Callable[[], object], mandate) -> Check:
+    """T-10.1: a grader must act under a mandate issued by someone else."""
+    check = report.add(
+        Check(
+            "T-10.1",
+            "VOC grader authority",
+            "An automated grader MUST NOT accept risk without a mandate, and MUST NOT "
+            "be able to issue its own",
+        )
+    )
+    try:
+        from .mandate import GraderMandate, MandateRefused
+
+        self_issued = False
+        try:
+            GraderMandate(
+                mandate_id="self",
+                issuer_id=getattr(mandate, "grader_id", "g"),
+                issuer_role="self",
+                grader_id=getattr(mandate, "grader_id", "g"),
+                issued_at="2026-10-30T09:00:00Z",
+                not_after="2026-12-31T00:00:00Z",
+                policies=("p",),
+            )
+        except MandateRefused:
+            self_issued = True
+
+        # A grader with no mandate must refuse rather than sign.
+        bare = grader_factory()
+        refused_without = False
+        try:
+            bare.sign_exemption(
+                receipt_id="probe", issued_at="2026-10-30T16:00:00Z",
+                request_id="probe", policy_id="p", halt_cause="policy_violation",
+                reason="probe", delegation_id="d", principal_id="p1",
+            )
+        except Exception:  # noqa: BLE001
+            refused_without = True
+    except Exception as exc:  # noqa: BLE001
+        check.detail = f"raised {exc.__class__.__name__}: {exc}"
+        return check
+
+    check.passed = self_issued and refused_without
+    check.detail = (
+        f"self issued mandate refused={self_issued}, "
+        f"signing without a mandate refused={refused_without}"
+    )
+    return check
+
+
+def t_10_2(report: Report, grader, mandate) -> Check:
+    """T-10.2: the mandate's bounds must be enforced at signing time."""
+    check = report.add(
+        Check(
+            "T-10.2",
+            "VOC grader authority",
+            "A mandate's policy scope, principal scope, value ceiling, expiry and "
+            "exemption count MUST be enforced when the grader signs",
+        )
+    )
+    cases = []
+    base = dict(
+        receipt_id="probe", issued_at="2026-10-30T16:00:00Z", request_id="probe",
+        halt_cause="policy_violation", reason="probe", delegation_id="d",
+        principal_id="principal-self-test", valid_until="2026-10-30T18:00:00Z",
+    )
+    probes = [
+        ("policy outside scope", {**base, "policy_id": "pol-not-in-scope"}),
+        ("principal outside scope", {**base, "policy_id": "pol-value-limit",
+                                    "principal_id": "someone-else"}),
+        ("value over ceiling", {**base, "policy_id": "pol-value-limit", "value": 10**9}),
+        ("lapsed mandate", {**base, "policy_id": "pol-value-limit",
+                            "issued_at": "2030-01-01T00:00:00Z"}),
+    ]
+    for label, kwargs in probes:
+        try:
+            grader.sign_exemption(**kwargs)
+            cases.append(f"{label}: SIGNED (should have refused)")
+        except Exception:  # noqa: BLE001
+            cases.append(f"{label}: refused")
+
+    refused_all = all("refused" in case for case in cases)
+    check.passed = refused_all
+    check.detail = "; ".join(cases)
+    return check
+
+
 def run_all(
     decide: Callable[[dict], str] | None = None,
     events: list[dict] | None = None,
@@ -340,6 +610,16 @@ def run_all(
     resolve_status: Callable[[], object] | None = None,
     decide_resume: Callable[..., object] | None = None,
     wire_values: tuple[str, ...] | None = None,
+    voc_evaluate: Callable[..., object] | None = None,
+    voc_resume: Callable[..., object] | None = None,
+    voc_receipt: Callable[[], dict] | None = None,
+    boundary_declared: str | None = None,
+    signature_algorithm: str | None = None,
+    signature_bytes: int | None = None,
+    registry: object | None = None,
+    grader_factory: Callable[[], object] | None = None,
+    grader: object | None = None,
+    grader_mandate: object | None = None,
 ) -> Report:
     """Run every check the given inputs support."""
     report = Report()
@@ -361,4 +641,20 @@ def run_all(
         if wire_values is not None:
             paused = decide_resume(signature_valid=True, basis=None)
             t_7_4(report, wire_values, paused)
+    if voc_evaluate is not None:
+        t_8_1(report, voc_evaluate)
+        t_8_2(report, voc_evaluate)
+        t_8_3(report, voc_evaluate)
+        if voc_resume is not None and voc_receipt is not None:
+            t_8_4(report, voc_evaluate, voc_resume, voc_receipt)
+    if boundary_declared is not None:
+        t_9_1(report, boundary_declared)
+    if signature_algorithm is not None and signature_bytes is not None:
+        t_9_2(report, signature_algorithm, signature_bytes)
+    if registry is not None:
+        t_9_3(report, registry)
+    if grader_factory is not None and grader_mandate is not None:
+        t_10_1(report, grader_factory, grader_mandate)
+    if grader is not None and grader_mandate is not None:
+        t_10_2(report, grader, grader_mandate)
     return report

@@ -36,6 +36,22 @@ class Boundary(str, Enum):
     INVOCATION = "invocation"
     EFFECT = "effect"
     COMPLETION = "completion"
+    # NTI's own architecture. The AIW paper says a tool call cannot safely be
+    # interrupted mid flight without corrupting external state, so the sidecar
+    # lets the current atomic call finish and intercepts the next one. That is a
+    # distinct posture from INVOCATION: the status is not frozen for the whole
+    # session, it is re-read at every sub-call edge.
+    SUB_CALL = "sub_call"
+
+
+# Which boundaries may halt an action that is already running.
+#
+# EFFECT is listed because it is expressible and useful, but NTI-1 as written
+# does not allow it for tool calls, so a target claiming NTI compliance must
+# declare SUB_CALL or INVOCATION. The conformance check enforces that rather than
+# trusting a declaration.
+INTERRUPTING_BOUNDARIES = (Boundary.EFFECT,)
+NTI_PERMITTED_BOUNDARIES = (Boundary.SUB_CALL, Boundary.INVOCATION, Boundary.COMPLETION)
 
 
 @dataclass
@@ -45,14 +61,21 @@ class BoundaryDecision:
     reason: str
     # What happened to an action already under way when status changed.
     interrupted: bool = False
+    # For the sub-call posture: whether the following call may proceed. This is
+    # the field that makes NTI's refusal expressible without interrupting the
+    # call already in flight.
+    next_call_allowed: bool | None = None
 
     def as_dict(self) -> dict:
-        return {
+        payload = {
             "boundary": self.boundary.value,
             "allowed": self.allowed,
             "reason": self.reason,
             "interrupted": self.interrupted,
         }
+        if self.next_call_allowed is not None:
+            payload["next_call_allowed"] = self.next_call_allowed
+        return payload
 
 
 def judge(
@@ -107,6 +130,38 @@ def judge(
             interrupted=False,
         )
 
+    if boundary is Boundary.SUB_CALL:
+        # NTI's posture. The atomic call in flight is never interrupted, because
+        # doing so would corrupt external state. Instead the status is re-read at
+        # the edge between calls: a change that arrives mid flight stops the
+        # next call, not this one. The refusal is therefore recorded as a
+        # boundary decision for the following payload rather than a halt.
+        if in_flight:
+            next_allowed = ok(status_at_effect)
+            return BoundaryDecision(
+                boundary=boundary,
+                allowed=True,
+                reason=(
+                    "the atomic call in flight is allowed to finish; the status "
+                    + ("is still active at the sub-call edge" if next_allowed
+                       else "changed mid flight, so the next call will be refused")
+                ),
+                interrupted=False,
+                next_call_allowed=next_allowed,
+            )
+        allowed = ok(status_at_start)
+        return BoundaryDecision(
+            boundary=boundary,
+            allowed=allowed,
+            reason=(
+                "status at the sub-call edge was active"
+                if allowed
+                else "status at the sub-call edge was not active, so the call is refused"
+            ),
+            interrupted=False,
+            next_call_allowed=allowed,
+        )
+
     allowed = ok(status_at_end)
     return BoundaryDecision(
         boundary=boundary,
@@ -132,5 +187,9 @@ def describe(boundary: Boundary) -> str:
         ),
         Boundary.COMPLETION: (
             "judged at completion: the widest window, and the least protection"
+        ),
+        Boundary.SUB_CALL: (
+            "judged at every sub-call edge: the call in flight always finishes, and "
+            "a status change is refused at the next one"
         ),
     }[boundary]

@@ -10,6 +10,17 @@ venv/
 .ruff_cache/
 .mypy_cache/
 
+# Rust build output. The signing core's target directory is 40MB of compiled
+# artefacts and must never be committed. Cargo.lock is kept deliberately, because
+# this is a binary and a reproducible build needs the resolved versions pinned.
+rust/*/target/
+rust/target/
+
 # Local state
 *.local.json
 .env
+
+# Signing keys. The core generates its key in memory and never writes it, but if
+# anyone ever adds a seed file for test vectors it must not be committed.
+*.seed
+*.key

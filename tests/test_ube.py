@@ -294,3 +294,65 @@ def test_a_permissive_resume_implementation_fails_them():
     report = run_all(decide_resume=decide_resume, wire_values=("allow", "deny", "pause", "resume", "revoked"))
     assert not report.passed
     assert "T-7.1" in {c.ident for c in report.failures}
+
+
+# ---- the VOC checks ------------------------------------------------------
+
+
+def test_a_correct_voc_implementation_passes():
+    from algovoi_ube.mandate import GraderMandate, sign_mandate
+    from algovoi_ube.voc import AgentGrader, HmacSigner, evaluate, resume_on_exemption
+
+    signer = HmacSigner(b"k", key_id="k1")
+    issuer = HmacSigner(b"issuer", key_id="issuer-1")
+    mandate = GraderMandate(
+        mandate_id="m-1", issuer_id="principal-1", issuer_role="risk-committee",
+        grader_id="g", issued_at="2026-10-30T09:00:00Z",
+        not_after="2026-12-31T00:00:00Z", policies=("p",),
+        principals=("p1",), max_exemptions=10,
+    )
+    grader = AgentGrader(
+        grader_id="g", grader_role="officer", signer=signer,
+        mandate=mandate, mandate_payload=sign_mandate(mandate, issuer),
+    )
+
+    def receipt():
+        return grader.sign_exemption(
+            receipt_id="r", issued_at="2026-10-30T16:00:00Z", request_id="q",
+            policy_id="p", halt_cause="policy_violation", reason="r",
+            delegation_id="d", principal_id="p1", valid_until="2026-10-30T18:00:00Z",
+        )
+
+    report = run_all(
+        voc_evaluate=evaluate,
+        voc_resume=lambda *, outcome, receipt: resume_on_exemption(
+            outcome=outcome, receipt=receipt, signer=signer
+        ),
+        voc_receipt=receipt,
+    )
+    assert report.passed, report.summary()
+    assert {c.ident for c in report.checks} == {"T-8.1", "T-8.2", "T-8.3", "T-8.4"}
+
+
+def test_a_rubber_stamp_voc_implementation_fails():
+    """VOC that always allows, and resumes on any receipt, must be caught."""
+
+    class RubberStamp:
+        wire_value = "allow"
+        paused = False
+        receipt = None
+
+    def evaluate(**kwargs):
+        return RubberStamp()
+
+    def resume(**kwargs):
+        return RubberStamp()
+
+    report = run_all(
+        voc_evaluate=evaluate,
+        voc_resume=resume,
+        voc_receipt=lambda: {"justification": {"reason": "x"}},
+    )
+    assert not report.passed
+    failed = {c.ident for c in report.failures}
+    assert {"T-8.1", "T-8.2", "T-8.3", "T-8.4"} <= failed, failed

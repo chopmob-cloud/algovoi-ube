@@ -425,6 +425,437 @@ def finding_one_directional() -> dict:
     }
 
 
+
+def _mandated_grader(signer, *, max_exemptions: int = 50):
+    """A grader with a real mandate, for the findings that need to sign.
+
+    Since a grader now refuses without one, every finding that exercises the
+    signing path has to build the authority chain too. Centralised here so the
+    findings cannot drift apart in how they establish it.
+    """
+    from algovoi_ube.mandate import GraderMandate, MandateRegistry, sign_mandate
+    from algovoi_ube.voc import AgentGrader, HmacSigner
+
+    issuer = HmacSigner(b"evidence-issuer", key_id="issuer")
+    mandate = GraderMandate(
+        mandate_id="m-evidence",
+        issuer_id="principal-evidence",
+        issuer_role="risk-committee",
+        grader_id="g",
+        issued_at="2026-10-30T09:00:00Z",
+        not_after="2026-12-31T00:00:00Z",
+        policies=("p", "pol-value-limit"),
+        principals=("p1", "principal-acme", "principal-evidence"),
+        max_value=10**9,
+        max_exemptions=max_exemptions,
+    )
+    payload = sign_mandate(mandate, issuer)
+    registry = MandateRegistry()
+    registry.register(payload)
+    grader = AgentGrader(
+        grader_id="g",
+        grader_role="officer",
+        signer=signer,
+        mandate=mandate,
+        mandate_payload=payload,
+        mandate_registry=registry,
+    )
+    return grader, registry
+
+
+def finding_voc_flow() -> dict:
+    """F11: does STRICT fail closed and VOC pause?"""
+    from algovoi_ube.voc import evaluate
+
+    strict = evaluate(mode="STRICT", policy_allows=False)
+    voc = evaluate(mode="VOC", policy_allows=False)
+    allowed = evaluate(mode="VOC", policy_allows=True)
+    revoked = evaluate(mode="VOC", policy_allows=False, halt_cause="authority_revoked")
+    return {
+        "id": "F11",
+        "claim": "A policy violation is denied under STRICT and paused under VOC, and a revocation halts under VOC rather than becoming an exemption candidate",
+        "strict": {"wire_value": strict.wire_value, "paused": strict.paused},
+        "voc": {"wire_value": voc.wire_value, "paused": voc.paused},
+        "allowed": {"wire_value": allowed.wire_value},
+        "revoked_under_voc": {"wire_value": revoked.wire_value},
+        "verdict": (
+            "confirmed"
+            if strict.wire_value == "deny"
+            and voc.wire_value == "pause"
+            and voc.paused
+            and allowed.wire_value == "allow"
+            and revoked.wire_value not in {"allow", "resume"}
+            else "refuted"
+        ),
+    }
+
+
+def finding_receipt_boundaries() -> dict:
+    """F12: can a receipt exempting a revocation be expressed at all?
+
+    Checked at both layers: the schema's enumeration, and the constructor that
+    refuses to build one. A boundary enforced only in prose is a boundary
+    somebody will route around.
+    """
+    import json
+
+    from algovoi_ube.voc import AgentGrader, GraderRefused, HmacSigner, JustificationReceipt, ReceiptRefused
+
+    schema_path = ROOT / "schemas" / "justification_receipt.schema.json"
+    schema = json.loads(schema_path.read_text(encoding="utf-8"))
+    schema_causes = schema["properties"]["halt"]["properties"]["cause"]["enum"]
+
+    constructor_refused = {}
+    for cause in ("authority_revoked", "authority_not_determined", "policy_violation"):
+        try:
+            JustificationReceipt(
+                receipt_id="r", issued_at="2026-10-30T16:00:00Z", request_id="q",
+                policy_id="p", halt_cause=cause, reason="x", grader_id="g",
+                grader_role="o", delegation_id="d", principal_id="p1",
+            )
+            constructor_refused[cause] = False
+        except ReceiptRefused:
+            constructor_refused[cause] = True
+
+    signer = HmacSigner(b"evidence-key", key_id="evidence")
+    grader, _ = _mandated_grader(signer)
+    grader_refused = {}
+    for cause in ("authority_revoked", "authority_not_determined"):
+        try:
+            grader.sign_exemption(
+                receipt_id="r", issued_at="2026-10-30T16:00:00Z", request_id="q",
+                policy_id="p", halt_cause=cause, reason="x", delegation_id="d",
+                principal_id="p1",
+            )
+            grader_refused[cause] = False
+        except GraderRefused:
+            grader_refused[cause] = True
+
+    ok = (
+        schema_causes == ["policy_violation"]
+        and constructor_refused["authority_revoked"]
+        and constructor_refused["authority_not_determined"]
+        and not constructor_refused["policy_violation"]
+        and all(grader_refused.values())
+    )
+    return {
+        "id": "F12",
+        "claim": "A receipt that purports to exempt a revocation or an undetermined authority cannot be expressed: the schema admits only policy_violation, the constructor refuses the others, and the grader will not sign them",
+        "schema_source_sha256": digest(schema_path),
+        "schema_permitted_causes": schema_causes,
+        "constructor_refused": constructor_refused,
+        "grader_refused": grader_refused,
+        "verdict": "confirmed" if ok else "refuted",
+    }
+
+
+def finding_tampered_receipt() -> dict:
+    """F13: does editing a signed receipt still resume?"""
+    from algovoi_ube.voc import AgentGrader, HmacSigner, evaluate, resume_on_exemption
+
+    signer = HmacSigner(b"evidence-key", key_id="evidence")
+    grader, _ = _mandated_grader(signer)
+    good = grader.sign_exemption(
+        receipt_id="r", issued_at="2026-10-30T16:00:00Z", request_id="q",
+        policy_id="p", halt_cause="policy_violation", reason="original reason",
+        delegation_id="d", principal_id="p1", valid_until="2026-10-30T18:00:00Z",
+    )
+    paused = evaluate(mode="VOC", policy_allows=False)
+    clean = resume_on_exemption(outcome=paused, receipt=good, signer=signer)
+
+    tampered = dict(good)
+    tampered["justification"] = dict(good["justification"])
+    tampered["justification"]["reason"] = "edited after signing"
+    dirty = resume_on_exemption(outcome=paused, receipt=tampered, signer=signer)
+
+    return {
+        "id": "F13",
+        "claim": "A receipt whose justification is edited after signing does not resume the halted action, so the signature is load bearing rather than decorative",
+        "clean_receipt": {"wire_value": clean.wire_value},
+        "tampered_receipt": {"wire_value": dirty.wire_value, "reason": dirty.reason},
+        "verdict": (
+            "confirmed"
+            if clean.wire_value == "resume" and dirty.wire_value != "resume"
+            else "refuted"
+        ),
+    }
+
+
+def finding_rfc8785() -> dict:
+    """F14: does our canonicalisation match RFC 8785 on the hard cases?"""
+    import struct
+
+    from algovoi_ube.canonical import canonicalize
+
+    vectors = [
+        ("0000000000000000", "0"),
+        ("8000000000000000", "0"),
+        ("3eb0c6f7a0b5ed8d", "0.000001"),
+        ("3eb0c6f7a0b5ed8e", "0.0000010000000000000002"),
+        ("444b1ae4d6e2ef50", "1e+21"),
+        ("44b52d02c7e14af6", "1e+23"),
+        ("7fefffffffffffff", "1.7976931348623157e+308"),
+    ]
+    results = []
+    for bits, expected in vectors:
+        value = struct.unpack(">d", bytes.fromhex(bits))[0]
+        got = canonicalize(value)
+        results.append({"bits": bits, "expected": expected, "got": got, "ok": got == expected})
+
+    ordering = canonicalize({"\ue000": 1, "\U00010000": 2})
+    utf16_ok = ordering == '{"\U00010000":2,"\ue000":1}'
+    literal = canonicalize("caf\u00e9")
+    literal_ok = literal == '"caf\u00e9"'
+
+    return {
+        "id": "F14",
+        "claim": "The canonicaliser follows RFC 8785 where it differs from Python's json: ECMAScript number layout, UTF-16 key ordering, and literal non-ASCII rather than \\uXXXX escaping",
+        "number_vectors": results,
+        "utf16_key_ordering_correct": utf16_ok,
+        "non_ascii_emitted_literally": literal_ok,
+        "verdict": (
+            "confirmed"
+            if all(r["ok"] for r in results) and utf16_ok and literal_ok
+            else "refuted"
+        ),
+    }
+
+
+def finding_ml_dsa() -> dict:
+    """F15: does the signature scheme match what NTI-1 names?"""
+    from algovoi_ube.pqsign import SIGNATURE_BYTES, VERIFYING_KEY_BYTES, Dilithium5Signer, SignerUnavailable
+
+    try:
+        with Dilithium5Signer() as signer:
+            payload = b'{"action":"transfer_funds","amount":10}'
+            signature = signer.sign(payload)
+            good = signer.verify(payload, signature)
+            tampered = signer.verify(payload + b"x", signature)
+            empty_refused = False
+            try:
+                signer.sign(b"")
+            except SignerUnavailable:
+                empty_refused = True
+            info = {
+                "algorithm": signer.algorithm,
+                "key_id": signer.key_id,
+                "verify_key_bytes": len(signer.verify_key) // 2,
+                "signature_bytes": len(signature.split(":", 1)[-1]) // 2,
+                "core": str(signer.core_path),
+            }
+    except SignerUnavailable as exc:
+        return {
+            "id": "F15",
+            "claim": "Signatures use CRYSTALS-Dilithium5 as ML-DSA-87 in an isolated process, so the key never enters the Python process that assembles the receipt",
+            "verdict": "unproven",
+            "reason": f"the ML-DSA core was not available: {exc}",
+        }
+
+    ok = (
+        info["algorithm"] == "ML-DSA-87"
+        and info["signature_bytes"] == SIGNATURE_BYTES
+        and info["verify_key_bytes"] == VERIFYING_KEY_BYTES
+        and good
+        and tampered is False
+        and empty_refused
+    )
+    return {
+        "id": "F15",
+        "claim": "Signatures use CRYSTALS-Dilithium5 as ML-DSA-87 in an isolated process, so the key never enters the Python process that assembles the receipt",
+        "method": "sign a real payload in the Rust core, verify it, tamper with it, and attempt an empty payload",
+        "measured": info,
+        "expected_signature_bytes": SIGNATURE_BYTES,
+        "expected_verify_key_bytes": VERIFYING_KEY_BYTES,
+        "valid_payload_verifies": good,
+        "tampered_payload_rejected": tampered is False,
+        "empty_payload_refused": empty_refused,
+        "verdict": "confirmed" if ok else "refuted",
+    }
+
+
+def finding_stale_root() -> dict:
+    """F16: is a token bound to a superseded registry root refused?"""
+    from algovoi_ube.registry import MerkleRevocationRegistry, ProofRejected
+
+    registry = MerkleRevocationRegistry()
+    registry.register("cap-a")
+    registry.register("cap-b")
+    proof = registry.prove_membership("cap-a")
+    root_before = registry.root
+    fresh = registry.verify_membership(proof)
+
+    registry.revoke("cap-a")
+    root_after = registry.root
+    stale_refused = False
+    stale_reason = ""
+    try:
+        registry.verify_membership(proof)
+    except ProofRejected as exc:
+        stale_refused = True
+        stale_reason = str(exc)
+
+    historical = registry.verify_membership(proof, expect_root=root_before)
+    live_after = registry.is_live("cap-a")
+
+    return {
+        "id": "F16",
+        "claim": "A capability proof built against a superseded registry root is refused at the boundary, while the same proof still verifies against the historical root for audit",
+        "method": "prove membership, revoke, then verify against the current and the pinned root",
+        "root_before": root_before[:16],
+        "root_after": root_after[:16],
+        "fresh_proof_verified": fresh,
+        "stale_proof_refused": stale_refused,
+        "stale_reason": stale_reason,
+        "historical_root_still_verifies": historical,
+        "capability_live_after_revocation": live_after,
+        "verdict": (
+            "confirmed"
+            if fresh and stale_refused and historical and not live_after
+            else "refuted"
+        ),
+    }
+
+
+def finding_sub_call_boundary() -> dict:
+    """F17: does the harness permit a mid tool call halt?"""
+    from algovoi_ube.boundary import Boundary, judge
+
+    sub = judge(
+        Boundary.SUB_CALL,
+        status_at_start="active",
+        status_at_effect="revoked",
+        status_at_end="revoked",
+        in_flight=True,
+    )
+    effect = judge(
+        Boundary.EFFECT,
+        status_at_start="active",
+        status_at_effect="revoked",
+        status_at_end="revoked",
+        in_flight=True,
+    )
+    return {
+        "id": "F17",
+        "claim": "The declared boundary lets the atomic call in flight finish and refuses the next one, which is the posture NTI requires, and the effect boundary that would interrupt mid call is identifiable as non-compliant",
+        "sub_call_in_flight": {
+            "allowed": sub.allowed,
+            "interrupted": sub.interrupted,
+            "next_call_allowed": sub.next_call_allowed,
+        },
+        "effect_in_flight": {
+            "allowed": effect.allowed,
+            "interrupted": effect.interrupted,
+        },
+        "verdict": (
+            "confirmed"
+            if sub.allowed
+            and sub.interrupted is False
+            and sub.next_call_allowed is False
+            and effect.interrupted is True
+            else "refuted"
+        ),
+    }
+
+
+def finding_grader_mandate() -> dict:
+    """F18: can a grader accept risk on its own authority?"""
+    from algovoi_ube.mandate import GraderMandate, MandateRefused, MandateRegistry, sign_mandate
+    from algovoi_ube.voc import AgentGrader, GraderRefused, HmacSigner
+
+    issuer = HmacSigner(b"evidence-issuer", key_id="issuer")
+    grader_key = HmacSigner(b"evidence-grader", key_id="grader")
+
+    self_issued_refused = False
+    try:
+        GraderMandate(
+            mandate_id="self", issuer_id="g", issuer_role="self", grader_id="g",
+            issued_at="2026-10-30T09:00:00Z", not_after="2026-12-31T00:00:00Z",
+            policies=("p",),
+        )
+    except MandateRefused:
+        self_issued_refused = True
+
+    bare = AgentGrader(grader_id="g", grader_role="officer", signer=grader_key)
+    no_mandate_refused = False
+    try:
+        bare.sign_exemption(
+            receipt_id="r", issued_at="2026-10-30T16:00:00Z", request_id="q",
+            policy_id="p", halt_cause="policy_violation", reason="x",
+            delegation_id="d", principal_id="p1",
+        )
+    except GraderRefused:
+        no_mandate_refused = True
+
+    mandate = GraderMandate(
+        mandate_id="m-1", issuer_id="principal-acme", issuer_role="risk-committee",
+        grader_id="g", issued_at="2026-10-30T09:00:00Z",
+        not_after="2026-12-31T00:00:00Z", policies=("pol-value-limit",),
+        principals=("principal-acme",), max_value=1000, max_exemptions=2,
+    )
+    registry = MandateRegistry()
+    registry.register(sign_mandate(mandate, issuer))
+    grader = AgentGrader(
+        grader_id="g", grader_role="officer", signer=grader_key,
+        mandate=mandate, mandate_payload=sign_mandate(mandate, issuer),
+        mandate_registry=registry,
+    )
+
+    def attempt(**overrides):
+        kwargs = dict(
+            receipt_id="r", issued_at="2026-10-30T16:00:00Z", request_id="q",
+            policy_id="pol-value-limit", halt_cause="policy_violation", reason="x",
+            delegation_id="d", principal_id="principal-acme",
+            valid_until="2026-10-30T18:00:00Z", value=100,
+        )
+        kwargs.update(overrides)
+        try:
+            grader.sign_exemption(**kwargs)
+            return "signed"
+        except GraderRefused:
+            return "refused"
+
+    within = attempt()
+    outside_policy = attempt(policy_id="pol-other")
+    outside_principal = attempt(principal_id="principal-other")
+    over_ceiling = attempt(value=10**6)
+    lapsed = attempt(issued_at="2030-01-01T00:00:00Z")
+
+    receipt = grader.sign_exemption(
+        receipt_id="r-2", issued_at="2026-10-30T16:00:00Z", request_id="q2",
+        policy_id="pol-value-limit", halt_cause="policy_violation", reason="x",
+        delegation_id="d", principal_id="principal-acme",
+        valid_until="2026-10-30T18:00:00Z", value=100,
+    )
+    registry.revoke("m-1")
+    after_revocation = attempt()
+
+    ok = (
+        self_issued_refused
+        and no_mandate_refused
+        and within == "signed"
+        and outside_policy == "refused"
+        and outside_principal == "refused"
+        and over_ceiling == "refused"
+        and lapsed == "refused"
+        and after_revocation == "refused"
+        and receipt["grader"]["mandate_id"] == "m-1"
+    )
+    return {
+        "id": "F18",
+        "claim": "An automated grader cannot accept risk on its own authority: it cannot issue its own mandate, it signs nothing without one, and the mandate's policy scope, principal scope, value ceiling, expiry and revocation are all enforced at the moment of signing",
+        "self_issued_mandate_refused": self_issued_refused,
+        "no_mandate_refused": no_mandate_refused,
+        "within_mandate": within,
+        "outside_policy_scope": outside_policy,
+        "outside_principal_scope": outside_principal,
+        "over_value_ceiling": over_ceiling,
+        "lapsed_mandate": lapsed,
+        "after_revocation": after_revocation,
+        "receipt_names_its_mandate": receipt["grader"]["mandate_id"],
+        "verdict": "confirmed" if ok else "refuted",
+    }
+
+
 def main(argv: list[str] | None = None) -> int:
     args = list(sys.argv[1:] if argv is None else argv)
     check_only = "--check" in args
@@ -441,6 +872,14 @@ def main(argv: list[str] | None = None) -> int:
         finding_resume_basis(),
         finding_exemption_boundaries(),
         finding_one_directional(),
+        finding_voc_flow(),
+        finding_receipt_boundaries(),
+        finding_tampered_receipt(),
+        finding_rfc8785(),
+        finding_ml_dsa(),
+        finding_stale_root(),
+        finding_sub_call_boundary(),
+        finding_grader_mandate(),
     ]
 
     if check_only:
