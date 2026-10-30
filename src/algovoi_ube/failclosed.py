@@ -214,9 +214,11 @@ class Lifecycle:
         in REVERIFY. No lawful successor reaches RESUMED, and no extra state was
         needed to say so.
 
-        ``basis`` is the resume basis from :mod:`algovoi_ube.resume`. When one is
-        supplied it is enforced here, so a resume cannot bypass it by calling the
-        lifecycle directly.
+        ``basis`` is the resume basis from :mod:`algovoi_ube.resume`. It is
+        required in substance, not only in signature: a call with no basis is
+        refused, because a resume that records nothing about why the halt was
+        lifted is indistinguishable from one where someone simply asserted the
+        condition was fine.
         """
         if self.state is not State.PAUSE:
             raise IllegalTransition(f"cannot resume from {self.state.value}")
@@ -238,6 +240,17 @@ class Lifecycle:
                     f"resume refused on basis: {decision.reason}"
                 )
             self.receipt = decision.receipt
+        else:
+            # A resume with no basis at all is the same fail-open as a basis with
+            # no evidence attached: the chain reaches RESUMED having established
+            # nothing about why the halt was lifted. Callers that only exercise
+            # the irreversible-revocation refusal never reach here, so refusing
+            # None costs them nothing.
+            raise IllegalTransition(
+                "resume refused: a resume must carry a basis (evidence or "
+                "exemption); reaching RESUMED on no basis records nothing about "
+                "why the halt was lifted"
+            )
 
         self.to(State.RESUMED)
         return self.state

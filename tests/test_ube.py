@@ -22,6 +22,7 @@ from algovoi_ube.chain import (  # noqa: E402
     request_hash,
     verify_chain,
 )
+from algovoi_ube.resume import Basis, RestoreEvidence, ResumeBasis  # noqa: E402
 from algovoi_ube.conformance import run_all  # noqa: E402
 from algovoi_ube.failclosed import (  # noqa: E402
     REASONS,
@@ -153,7 +154,16 @@ def test_resume_walks_the_documented_path():
     life.to(State.GATE_PASSED)
     life.to(State.ACTIVE)
     life.halt()
-    life.resume()
+    life.resume(
+        ResumeBasis(
+            basis=Basis.EVIDENCE.value,
+            evidence=RestoreEvidence(
+                conditions=["registry reports the policy as satisfied"],
+                verifier_role="compliance-officer",
+                valid_until="2026-10-30T17:00:00Z",
+            ),
+        )
+    )
     assert life.state is State.RESUMED
     assert State.ROLLBACK in life.history
     assert State.REVERIFY in life.history
@@ -274,7 +284,7 @@ def test_a_correct_resume_implementation_passes_the_new_checks():
 
     report = run_all(decide_resume=decide_resume, wire_values=WIRE_VALUES)
     assert report.passed, report.summary()
-    assert {c.ident for c in report.checks} == {"T-7.1", "T-7.2", "T-7.3", "T-7.4"}
+    assert {c.ident for c in report.checks} == {"T-7.1", "T-7.2", "T-7.3", "T-7.4", "T-7.5"}
 
 
 def test_a_permissive_resume_implementation_fails_them():

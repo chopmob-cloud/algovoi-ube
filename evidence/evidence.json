@@ -1,5 +1,5 @@
 {
-  "collected_at": "2026-10-30T19:33:06Z",
+  "collected_at": "2026-10-30T19:46:44Z",
   "tool": "algovoi-ube evidence collector",
   "environment": {
     "python": "3.12.10",
@@ -280,6 +280,11 @@
         "refused_at": "construction",
         "error": "an evidence based resume needs at least one restore condition, a verifier role and a validity window; a signature alone is an authenticity check, not a restore condition check"
       },
+      "lifecycle_no_basis": {
+        "refused": true,
+        "error": "resume refused: a resume must carry a basis (evidence or exemption); reaching RESUMED on no basis records nothing about why the halt was lifted",
+        "state": "REVERIFY"
+      },
       "on_evidence": {
         "allowed": true,
         "wire_value": "resume"
@@ -454,7 +459,7 @@
       "method": "sign a real payload in the Rust core, verify it, tamper with it, and attempt an empty payload",
       "measured": {
         "algorithm": "ML-DSA-87",
-        "key_id": "7b89d59e508298c7",
+        "key_id": "83d9cfa3699b179c",
         "verify_key_bytes": 2592,
         "signature_bytes": 4627,
         "core": "C:\\algo\\platform\\algovoi-ube\\rust\\nti-signer\\target\\release\\nti-signer.exe"

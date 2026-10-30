@@ -94,7 +94,7 @@ Eighteen findings, all currently confirmed:
 | F5 | Keystone fully answers 3 of 7 NTI-1 requirements, partly 2, not at all 2 | confirmed |
 | F6 | An `incomplete_check` cannot be built with an unclassified reason | confirmed |
 | F7 | The `REVERIFY` to `RESUMED` edge is declared and withdrawable without a terminal state | confirmed |
-| F8 | A valid signature alone does not reach RESUMED; a basis is required | confirmed |
+| F8 | A valid signature alone does not reach RESUMED; a complete basis is required, on the lifecycle path too | confirmed |
 | F9 | An exemption covers a policy violation and cannot cover a revocation or an unknown | confirmed |
 | F10 | The wire value does not depend on the receipt being present | confirmed |
 | F11 | STRICT denies a violation and VOC pauses, and a revocation halts under both | confirmed |
@@ -268,8 +268,8 @@ the place the argument is actually about.
 The wheel is built and validated in a clean-room Docker container on VM2, with no
 network during install, so the artefact set has to be self sufficient. Thirteen
 stages, all passing: offline install, import confirmed to resolve to the wheel
-rather than a staged source tree, 153 tests collected and 153 passing, the twenty
-check self test, the evidence findings re-derived from the installed wheel, sdist
+rather than a staged source tree, 160 tests collected and 160 passing, the twenty
+one check self test, the evidence findings re-derived from the installed wheel, sdist
 cleanliness, `pip check`, no runtime dependencies, and the ML-DSA core signing and
 refusing an empty payload.
 

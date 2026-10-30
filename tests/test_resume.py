@@ -88,6 +88,21 @@ def test_the_declared_edge_is_the_only_route_to_resumed():
             probe.to(State.RESUMED)
 
 
+def test_a_lifecycle_resume_with_no_basis_is_refused():
+    """The third instance of the same fail-open, found by the scanner.
+
+    ``Lifecycle.resume`` enforced the basis only when one was supplied, so
+    calling the lifecycle directly with no basis walked PAUSE to RESUMED having
+    established nothing about why the halt was lifted. That contradicted the F8
+    claim that a resume must carry a complete basis.
+    """
+    life = paused_lifecycle()
+    with pytest.raises(IllegalTransition) as excinfo:
+        life.resume()
+    assert "basis" in str(excinfo.value)
+    assert life.state is not State.RESUMED
+
+
 def test_irreversible_revocation_withdraws_the_edge_without_a_new_state():
     """The claim from message 0107 section 6, tested."""
     life = paused_lifecycle()

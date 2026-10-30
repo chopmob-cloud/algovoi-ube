@@ -333,6 +333,40 @@ def t_7_4(report: Report, wire_values: tuple[str, ...], paused_decision: object)
     return check
 
 
+def t_7_5(report: Report) -> Check:
+    """T-7.5: a resume must carry a basis, on every path.
+
+    The lifecycle enforced the basis only when one was supplied, so a direct call
+    reached RESUMED with nothing recorded about why the halt was lifted. The
+    requirement is about the record, not the caller, so the lifecycle path is
+    where it has to hold.
+    """
+    check = report.add(
+        Check(
+            "T-7.5",
+            "resume basis, required on the lifecycle path",
+            "A resume MUST carry a basis; reaching RESUMED with none MUST be refused",
+        )
+    )
+    from .failclosed import Lifecycle, State
+
+    life = Lifecycle()
+    for step in (State.GATE_PASSED, State.ACTIVE, State.ANOMALY, State.PAUSE):
+        life.to(step)
+    try:
+        life.resume()
+    except Exception as exc:  # noqa: BLE001
+        check.passed = life.state is not State.RESUMED
+        check.detail = (
+            f"refused at the lifecycle: {exc.__class__.__name__}; "
+            f"state stayed {life.state.value}"
+        )
+        return check
+    check.passed = False
+    check.detail = f"a resume with no basis reached {life.state.value}"
+    return check
+
+
 def t_8_1(report: Report, evaluate: Callable[..., object]) -> Check:
     """T-8.1: STRICT must fail closed with no exception path."""
     check = report.add(
@@ -641,6 +675,7 @@ def run_all(
         if wire_values is not None:
             paused = decide_resume(signature_valid=True, basis=None)
             t_7_4(report, wire_values, paused)
+        t_7_5(report)
     if voc_evaluate is not None:
         t_8_1(report, voc_evaluate)
         t_8_2(report, voc_evaluate)

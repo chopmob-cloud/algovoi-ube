@@ -346,6 +346,25 @@ def finding_resume_basis() -> dict:
         empty_evidence = {"refused_at": "construction", "error": str(exc), "allowed": False}
     else:
         empty_evidence = {"refused_at": None, "error": None, "allowed": True}
+    # The lifecycle path is the third instance of the same fail-open and the one
+    # this finding never exercised: resume() enforced the basis only when one was
+    # supplied, so calling the lifecycle directly reached RESUMED with nothing at
+    # all recorded about why the halt was lifted.
+    from algovoi_ube.failclosed import Lifecycle, State
+
+    life = Lifecycle()
+    for step in (State.GATE_PASSED, State.ACTIVE, State.ANOMALY, State.PAUSE):
+        life.to(step)
+    try:
+        life.resume()
+    except Exception as exc:  # noqa: BLE001 - the point is that it is refused
+        lifecycle_no_basis = {
+            "refused": True,
+            "error": str(exc),
+            "state": life.state.value,
+        }
+    else:
+        lifecycle_no_basis = {"refused": False, "error": None, "state": life.state.value}
     on_evidence = decide_resume(
         signature_valid=True,
         basis=ResumeBasis(
@@ -382,12 +401,15 @@ def finding_resume_basis() -> dict:
             "refused_at": empty_evidence["refused_at"],
             "error": empty_evidence["error"],
         },
+        "lifecycle_no_basis": lifecycle_no_basis,
         "on_evidence": {"allowed": on_evidence.allowed, "wire_value": on_evidence.wire_value},
         "revoked_delegation": {"allowed": revoked.allowed, "wire_value": revoked.wire_value},
         "verdict": (
             "confirmed"
             if not bare.allowed
             and not empty_evidence["allowed"]
+            and lifecycle_no_basis["refused"]
+            and lifecycle_no_basis["state"] != "RESUMED"
             and on_evidence.allowed
             and not revoked.allowed
             else "refuted"
