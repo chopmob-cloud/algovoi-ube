@@ -1,5 +1,5 @@
 {
-  "collected_at": "2026-10-30T18:51:25Z",
+  "collected_at": "2026-10-30T19:33:06Z",
   "tool": "algovoi-ube evidence collector",
   "environment": {
     "python": "3.12.10",
@@ -258,8 +258,8 @@
     },
     {
       "id": "F8",
-      "claim": "A valid signature alone does not reach RESUMED; a resume has to carry a basis from a closed set, so a restored condition and an accepted risk cannot produce identical records",
-      "method": "decide_resume with no basis, with an evidence basis, and with a basis reporting a revoked delegation",
+      "claim": "A valid signature alone does not reach RESUMED; a resume has to carry a complete basis from a closed set, so a restored condition and an accepted risk cannot produce identical records, and an evidence basis with no evidence attached is refused rather than read as a signature-only resume",
+      "method": "decide_resume with no basis, with an evidence basis carrying no evidence object, with a complete evidence basis, and with a basis reporting a revoked delegation",
       "closed_set": [
         "evidence",
         "exemption"
@@ -274,6 +274,11 @@
       "signature_alone": {
         "allowed": false,
         "wire_value": "pause"
+      },
+      "empty_evidence_basis": {
+        "allowed": false,
+        "refused_at": "construction",
+        "error": "an evidence based resume needs at least one restore condition, a verifier role and a validity window; a signature alone is an authenticity check, not a restore condition check"
       },
       "on_evidence": {
         "allowed": true,
@@ -449,7 +454,7 @@
       "method": "sign a real payload in the Rust core, verify it, tamper with it, and attempt an empty payload",
       "measured": {
         "algorithm": "ML-DSA-87",
-        "key_id": "6f159636ecf31e7d",
+        "key_id": "7b89d59e508298c7",
         "verify_key_bytes": 2592,
         "signature_bytes": 4627,
         "core": "C:\\algo\\platform\\algovoi-ube\\rust\\nti-signer\\target\\release\\nti-signer.exe"

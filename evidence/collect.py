@@ -333,6 +333,19 @@ def finding_resume_basis() -> dict:
     from algovoi_ube.resume import BASES, WIRE_VALUES, Basis, RestoreEvidence, ResumeBasis, decide_resume
 
     bare = decide_resume(signature_valid=True, basis=None)
+    # An evidence basis carrying no evidence object at all. This was a real hole:
+    # the completeness guard was skipped when the object was absent, so a basis
+    # labelled "evidence" with nothing attached reached RESUMED on the signature
+    # alone. F8 tested that a basis was present but never that it was complete,
+    # which is how the defect survived the gate. The refusal now happens in the
+    # constructor, so this records the construction being refused rather than a
+    # decision being returned.
+    try:
+        ResumeBasis(basis=Basis.EVIDENCE.value, evidence=None)
+    except Exception as exc:  # noqa: BLE001 - the point is that it is refused
+        empty_evidence = {"refused_at": "construction", "error": str(exc), "allowed": False}
+    else:
+        empty_evidence = {"refused_at": None, "error": None, "allowed": True}
     on_evidence = decide_resume(
         signature_valid=True,
         basis=ResumeBasis(
@@ -359,16 +372,24 @@ def finding_resume_basis() -> dict:
     )
     return {
         "id": "F8",
-        "claim": "A valid signature alone does not reach RESUMED; a resume has to carry a basis from a closed set, so a restored condition and an accepted risk cannot produce identical records",
-        "method": "decide_resume with no basis, with an evidence basis, and with a basis reporting a revoked delegation",
+        "claim": "A valid signature alone does not reach RESUMED; a resume has to carry a complete basis from a closed set, so a restored condition and an accepted risk cannot produce identical records, and an evidence basis with no evidence attached is refused rather than read as a signature-only resume",
+        "method": "decide_resume with no basis, with an evidence basis carrying no evidence object, with a complete evidence basis, and with a basis reporting a revoked delegation",
         "closed_set": list(BASES),
         "wire_values": list(WIRE_VALUES),
         "signature_alone": {"allowed": bare.allowed, "wire_value": bare.wire_value},
+        "empty_evidence_basis": {
+            "allowed": empty_evidence["allowed"],
+            "refused_at": empty_evidence["refused_at"],
+            "error": empty_evidence["error"],
+        },
         "on_evidence": {"allowed": on_evidence.allowed, "wire_value": on_evidence.wire_value},
         "revoked_delegation": {"allowed": revoked.allowed, "wire_value": revoked.wire_value},
         "verdict": (
             "confirmed"
-            if not bare.allowed and on_evidence.allowed and not revoked.allowed
+            if not bare.allowed
+            and not empty_evidence["allowed"]
+            and on_evidence.allowed
+            and not revoked.allowed
             else "refuted"
         ),
     }
