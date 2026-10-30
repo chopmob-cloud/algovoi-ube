@@ -321,6 +321,46 @@ class MerkleRevocationRegistry:
             if not leaf_hash(proof.capability_id) < leaf_hash(proof.successor):
                 raise ProofRejected("the successor does not sort after the capability")
 
+        # The neighbours sitting under the root and bracketing the capability by
+        # hash is not enough on its own: a live leaf can sit *between* two live
+        # leaves that still bracket the target, and a proof that names those two
+        # as the neighbours would pass every check above while the capability it
+        # claims to be absent is in fact present. A sorted Merkle tree only
+        # establishes non-membership when the two inclusions are *adjacent*, with
+        # nothing between them. The indices are Merkle-verified by the walks
+        # above, so adjacency can be read off them directly.
+        if proof.predecessor and proof.successor:
+            if proof.successor_index != proof.predecessor_index + 1:
+                raise ProofRejected(
+                    "the predecessor and successor are not adjacent leaves, so a "
+                    "live capability could sit between them: absence is not proved"
+                )
+        elif proof.successor and not proof.predecessor:
+            # No leaf sorts before the capability, so its successor has to be the
+            # very first leaf in the tree. Any other index leaves room for a live
+            # leaf to sort ahead of the target.
+            if proof.successor_index != 0:
+                raise ProofRejected(
+                    "no predecessor was given, so the successor must be the first "
+                    "leaf; otherwise a live capability could sort before the target"
+                )
+        elif proof.predecessor and not proof.successor:
+            # No leaf sorts after the capability, so its predecessor has to be the
+            # last leaf. The registry's current size is authoritative for that;
+            # when a caller pins an older root the current size no longer
+            # describes it, so the last-leaf position cannot be asserted and the
+            # proof is rejected rather than accepted on an unverifiable claim.
+            if reference != self.root:
+                raise ProofRejected(
+                    "a one-sided (predecessor only) absence proof cannot be "
+                    "verified against a pinned historical root"
+                )
+            if proof.predecessor_index != self.size - 1:
+                raise ProofRejected(
+                    "no successor was given, so the predecessor must be the last "
+                    "leaf; otherwise a live capability could sort after the target"
+                )
+
         return True
 
     def is_live(self, capability_id: str, *, expect_root: str | None = None) -> bool:

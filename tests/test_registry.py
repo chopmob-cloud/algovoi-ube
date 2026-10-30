@@ -17,6 +17,7 @@ sys.path.insert(0, str(ROOT / "src"))
 
 from algovoi_ube.registry import (  # noqa: E402
     MerkleRevocationRegistry,
+    NonMembershipProof,
     ProofRejected,
     leaf_hash,
     node_hash,
@@ -181,3 +182,101 @@ def test_all_leaves_verify_under_one_root():
     for cap in caps:
         assert reg.verify_membership(reg.prove_membership(cap)) is True
     assert len({reg.prove_membership(c).root for c in caps}) == 1
+
+
+# ---- non-membership soundness: neighbours must be adjacent ---------------
+
+
+def test_forged_absence_with_non_adjacent_neighbours_is_rejected():
+    """A live capability must not be passable as absent.
+
+    Two live leaves can still bracket a third live leaf by hash order. A
+    non-membership proof that names those two non-adjacent leaves as the
+    neighbours of a present capability sits entirely under the real root and
+    sorts correctly, so it passes every bracketing check. It must still be
+    rejected, because a sorted Merkle tree only proves absence when the two
+    inclusions are adjacent with nothing between them. Accepting it would let a
+    live capability be reported as revoked.
+    """
+    caps = [f"cap-{i}" for i in range(12)]
+    reg = registry_with(*caps)
+    ordered = [cap for _, cap in reg._ordered_leaves()]  # sorted by leaf hash
+
+    # Pick an interior, genuinely live capability as the forgery target, and two
+    # live leaves that bracket it by hash but are not its immediate neighbours.
+    target = ordered[5]
+    predecessor, pred_index = ordered[2], 2
+    successor, succ_index = ordered[8], 8
+    assert reg.is_live(target)
+    assert leaf_hash(predecessor) < leaf_hash(target) < leaf_hash(successor)
+
+    forged = NonMembershipProof(
+        capability_id=target,
+        predecessor=predecessor,
+        predecessor_index=pred_index,
+        predecessor_siblings=reg._siblings(pred_index),
+        successor=successor,
+        successor_index=succ_index,
+        successor_siblings=reg._siblings(succ_index),
+        root=reg.root,
+    )
+    with pytest.raises(ProofRejected) as excinfo:
+        reg.verify_absence(forged)
+    assert "adjacent" in str(excinfo.value)
+
+
+def test_forged_absence_before_first_with_wrong_successor_is_rejected():
+    """A one-sided proof must name the actual boundary leaf.
+
+    Claiming nothing sorts before the target, while pointing at a successor that
+    is not the first leaf, leaves room for a live leaf to sort ahead of the
+    target. The live leaf at index 0 would then be reported absent.
+    """
+    caps = [f"cap-{i}" for i in range(12)]
+    reg = registry_with(*caps)
+    ordered = [cap for _, cap in reg._ordered_leaves()]
+
+    target = ordered[0]  # the genuinely live first leaf
+    successor, succ_index = ordered[1], 1  # not index 0
+    assert reg.is_live(target)
+
+    forged = NonMembershipProof(
+        capability_id=target,
+        successor=successor,
+        successor_index=succ_index,
+        successor_siblings=reg._siblings(succ_index),
+        root=reg.root,
+    )
+    with pytest.raises(ProofRejected):
+        reg.verify_absence(forged)
+
+
+def test_forged_absence_after_last_with_wrong_predecessor_is_rejected():
+    """The mirror case: a predecessor that is not the last leaf."""
+    caps = [f"cap-{i}" for i in range(12)]
+    reg = registry_with(*caps)
+    ordered = [cap for _, cap in reg._ordered_leaves()]
+
+    target = ordered[-1]  # the genuinely live last leaf
+    predecessor, pred_index = ordered[-3], len(ordered) - 3  # not the last index
+    assert reg.is_live(target)
+
+    forged = NonMembershipProof(
+        capability_id=target,
+        predecessor=predecessor,
+        predecessor_index=pred_index,
+        predecessor_siblings=reg._siblings(pred_index),
+        root=reg.root,
+    )
+    with pytest.raises(ProofRejected):
+        reg.verify_absence(forged)
+
+
+def test_honest_absence_proofs_still_verify_after_the_adjacency_rule():
+    """The fix must not break genuine non-membership proofs of any shape."""
+    reg = registry_with(*[f"cap-{i}" for i in range(13)])
+    for name in ("absent-x", "absent-y", "zzz-last", "000-first", "cap-middle"):
+        if name in reg.capabilities:
+            continue
+        proof = reg.prove_absence(name)
+        assert reg.verify_absence(proof) is True

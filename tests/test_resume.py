@@ -177,6 +177,32 @@ def test_evidence_basis_needs_a_real_restore_condition():
     assert "restore condition" in str(excinfo.value)
 
 
+def test_evidence_basis_with_no_evidence_object_is_refused():
+    """The fail-open the completeness check used to skip.
+
+    An evidence basis asserts the restore condition was verified in full. A basis
+    of "evidence" carrying no evidence object at all once constructed cleanly and
+    then reached RESUMED on the signature alone, with the reason "the restore
+    condition was verified in full" while nothing had been verified. That is the
+    exact signature-only resume the basis field exists to refuse, so it is now
+    rejected at construction rather than quietly allowed at use.
+    """
+    with pytest.raises(ValueError) as excinfo:
+        ResumeBasis(basis=Basis.EVIDENCE.value)
+    assert "restore condition" in str(excinfo.value)
+
+
+def test_an_empty_evidence_basis_never_reaches_resumed():
+    """The decision layer must never see an empty evidence basis as a resume.
+
+    Construction is where it is refused now, so an empty evidence basis cannot be
+    handed to decide_resume at all. Pinning the behaviour from the caller's side
+    guards against the check being loosened again.
+    """
+    with pytest.raises(ValueError):
+        ResumeBasis(basis=Basis.EVIDENCE.value)
+
+
 def test_a_revoked_delegation_is_declined_even_with_a_valid_signature():
     """The worked example from the note to public-agentprotocol."""
     basis = ResumeBasis(

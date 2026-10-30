@@ -121,8 +121,14 @@ class ResumeBasis:
                 "A free text basis cannot be counted, which is the whole reason "
                 "the field exists."
             )
-        if self.basis == Basis.EVIDENCE.value and self.evidence is not None:
-            if not self.evidence.complete:
+        if self.basis == Basis.EVIDENCE.value:
+            # An evidence basis asserts that the registered restore condition was
+            # verified in full. Omitting the evidence object entirely must not be
+            # a way around that: a basis of "evidence" with nothing attached is a
+            # signature-only resume wearing the evidence label, which is exactly
+            # the fail-open this field exists to refuse. It is therefore required,
+            # not merely checked when present.
+            if self.evidence is None or not self.evidence.complete:
                 raise ValueError(
                     "an evidence based resume needs at least one restore condition, "
                     "a verifier role and a validity window; a signature alone is an "
