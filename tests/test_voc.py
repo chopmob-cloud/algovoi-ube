@@ -331,6 +331,29 @@ def test_an_expired_exemption_does_not_resume():
     assert "expired" in result.reason
 
 
+def test_an_exemption_with_no_validity_window_does_not_resume():
+    """No window is not a licence to skip the clock.
+
+    The check used to read the window and compare it only when it was present, so
+    an exemption that named no end resumed at any clock, including one set far
+    past the pause. A receipt that never expires cannot be shown to apply now.
+    """
+    from datetime import datetime, timezone
+
+    paused = evaluate(mode="VOC", policy_allows=False,
+                      request_id="req-42", policy_id="pol-value-limit")
+    receipt = signed_receipt(halt_id=paused.halt_id, valid_until="")
+    for clock in (
+        datetime(2026, 10, 30, 21, 0, tzinfo=timezone.utc),
+        datetime(2999, 1, 1, tzinfo=timezone.utc),
+    ):
+        result = resume_on_exemption(
+            outcome=paused, receipt=receipt, signer=signer(), now=clock
+        )
+        assert result.decision is Decision.DENY, clock
+        assert "no validity window" in result.reason
+
+
 def test_a_tampered_receipt_does_not_resume():
     paused = evaluate(mode="VOC", policy_allows=False)
     receipt = signed_receipt()

@@ -400,13 +400,22 @@ above.
 T-7.8 to T-7.10 pin the three fixes, each proven to fail when its behaviour is
 mutated back, and the receipt schema now requires `halt_id`.
 
+**An exemption with no window skipped the clock entirely.** The currency check
+read `validity.not_after` and compared it only when it was present, so a receipt
+that named no end resumed at any clock, including one set in the year 2999. The
+schema already required `not_after`, which made the gap worse rather than
+harmless: the field was mandatory on paper and optional in practice. An
+acceptance of risk that names no period cannot be shown to apply at the moment it
+is presented, so the absence is now refused. T-7.11 pins it, and reverting the
+guard turns it red.
+
 ## Validated on VM2
 
 The wheel is built and validated in a clean-room Docker container on VM2, with no
 network during install, so the artefact set has to be self sufficient. Thirteen
 stages, all passing: offline install, import confirmed to resolve to the wheel
-rather than a staged source tree, 174 tests collected and 174 passing, the twenty
-six check self test, the evidence findings re-derived from the installed wheel, sdist
+rather than a staged source tree, 175 tests collected and 175 passing, the twenty
+seven check self test, the evidence findings re-derived from the installed wheel, sdist
 cleanliness, `pip check`, no runtime dependencies, and the ML-DSA core signing and
 refusing an empty payload.
 

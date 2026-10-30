@@ -286,7 +286,7 @@ def test_a_correct_resume_implementation_passes_the_new_checks():
     assert report.passed, report.summary()
     assert {c.ident for c in report.checks} == {
         "T-7.1", "T-7.2", "T-7.3", "T-7.4", "T-7.5", "T-7.6", "T-7.7",
-        "T-7.8", "T-7.9", "T-7.10",
+        "T-7.8", "T-7.9", "T-7.10", "T-7.11",
     }
 
 

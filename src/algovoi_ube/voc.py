@@ -654,28 +654,42 @@ def resume_on_exemption(
     # An exemption is an acceptance of risk for a period. Reading the window and
     # never comparing it to a clock makes validity.not_after decoration.
     not_after = str((receipt.get("validity") or {}).get("not_after", ""))
-    if not_after:
-        from .resume import _parse_instant
+    if not not_after:
+        # Absence used to skip the comparison entirely, so a receipt with no window
+        # resumed at any clock, including one set years past the pause. An
+        # acceptance of risk that names no period is not time bound, so there is
+        # no instant at which it can be shown to apply. Refusing is the only
+        # reading that keeps the field meaningful.
+        return Outcome(
+            decision=Decision.DENY,
+            wire_value="deny",
+            reason=(
+                "the exemption records no validity window, so there is no period "
+                "inside which the acceptance of risk can be shown to apply; an "
+                "exemption that never expires cannot be checked against a clock"
+            ),
+        )
+    from .resume import _parse_instant
 
-        end = _parse_instant(not_after)
-        if end is None:
-            return Outcome(
-                decision=Decision.DENY,
-                wire_value="deny",
-                reason=(
-                    f"the exemption's validity window {not_after!r} cannot be read, so "
-                    "the resume cannot be shown to fall inside it"
-                ),
-            )
-        if now > end:
-            return Outcome(
-                decision=Decision.DENY,
-                wire_value="deny",
-                reason=(
-                    f"the exemption expired at {not_after}, before it was presented; "
-                    "an expired acceptance of risk does not authorise the action now"
-                ),
-            )
+    end = _parse_instant(not_after)
+    if end is None:
+        return Outcome(
+            decision=Decision.DENY,
+            wire_value="deny",
+            reason=(
+                f"the exemption's validity window {not_after!r} cannot be read, so "
+                "the resume cannot be shown to fall inside it"
+            ),
+        )
+    if now > end:
+        return Outcome(
+            decision=Decision.DENY,
+            wire_value="deny",
+            reason=(
+                f"the exemption expired at {not_after}, before it was presented; "
+                "an expired acceptance of risk does not authorise the action now"
+            ),
+        )
 
     return Outcome(
         decision=Decision.RESUME,

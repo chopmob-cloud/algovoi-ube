@@ -546,6 +546,56 @@ def t_7_10(report: Report) -> Check:
     return check
 
 
+def t_7_11(report: Report) -> Check:
+    """T-7.11: an exemption with no validity window must not resume."""
+    check = report.add(
+        Check(
+            "T-7.11",
+            "exemption receipt, no window means no resume",
+            "A signed exemption that records no validity window MUST NOT resume, "
+            "because there is no period in which it can be shown to apply",
+        )
+    )
+    from .voc import (
+        HmacSigner,
+        JustificationReceipt,
+        evaluate,
+        resume_on_exemption,
+    )
+
+    signer = HmacSigner(b"conformance-key", key_id="conformance")
+    paused = evaluate(
+        mode="VOC", policy_allows=False, request_id="req-1", policy_id="pol-1",
+        halt_id="halt-1",
+    )
+    # Bound correctly in every other respect: same request, same policy, same
+    # halt, correctly signed. Only the window is absent, which is exactly the
+    # case that used to skip the clock comparison instead of failing it.
+    windowless = JustificationReceipt(
+        receipt_id="r-1",
+        issued_at="2026-10-30T16:00:00Z",
+        request_id="req-1",
+        policy_id="pol-1",
+        halt_cause="policy_violation",
+        reason="accepted with no end date",
+        grader_id="g-1",
+        grader_role="compliance-officer",
+        delegation_id="d-1",
+        principal_id="p-1",
+        valid_until="",
+        halt_id="halt-1",
+    )
+    receipt = windowless.to_json(
+        signature=signer.sign(windowless.signing_input()),
+        algorithm="HMAC-SHA256",
+        key_id="conformance",
+    )
+    outcome = resume_on_exemption(outcome=paused, receipt=receipt, signer=signer)
+    check.passed = outcome.wire_value != "resume"
+    check.detail = f"wire_value={outcome.wire_value} ({outcome.reason[:70]})"
+    return check
+
+
 def t_8_1(report: Report, evaluate: Callable[..., object]) -> Check:
     """T-8.1: STRICT must fail closed with no exception path."""
     check = report.add(
@@ -860,6 +910,7 @@ def run_all(
         t_7_8(report)
         t_7_9(report)
         t_7_10(report)
+        t_7_11(report)
     if voc_evaluate is not None:
         t_8_1(report, voc_evaluate)
         t_8_2(report, voc_evaluate)
