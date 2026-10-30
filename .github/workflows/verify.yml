@@ -14,22 +14,42 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+      # NTI-1 mandates CRYSTALS-Dilithium5, so the signing checks need the real
+      # core. Without it T-9.2 fails rather than skipping, which is the correct
+      # behaviour and the reason this step exists.
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+      - name: Build the ML-DSA signing core
+        run: ./scripts/build_signer.sh
       - name: Install
         run: python -m pip install -e ".[test]"
       - name: Tests
         run: python -m pytest -q
+      - name: Confirm no test was skipped
+        run: |
+          python -m pytest -q -rs 2>&1 | tee /tmp/tests.log
+          if grep -q "skipped" /tmp/tests.log; then
+            echo "tests were skipped: the ML-DSA core was probably not built"
+            exit 1
+          fi
       - name: Harness self test
         run: python conformance/run.py --self-test
 
   evidence:
     # The evidence is regenerated on every push and compared with what is
     # committed. If a claim no longer holds, this fails rather than going stale.
+    # F15 needs the signing core, so it is built here too: an unproven finding is
+    # a downgrade from a confirmed one, and the check refuses that.
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+      - name: Build the ML-DSA signing core
+        run: ./scripts/build_signer.sh
       - name: Verify the committed evidence still holds
         run: python evidence/collect.py --check
       - name: Show what the findings are
