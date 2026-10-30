@@ -1,0 +1,21 @@
+# Shell scripts must be LF on every platform.
+#
+# This machine has core.autocrlf=true, so a checkout produces CRLF and a script
+# copied to a Linux host then fails with "#!/bin/sh\r: not found" before running
+# a single line. That is what happened to cleanroom.sh on VM2: the blob in git was
+# clean LF the whole time, so nothing in the repository looked wrong.
+#
+# Forcing eol=lf at checkout makes the working copy match the blob, so a script is
+# the same bytes whether it is run here or copied to a container.
+*.sh text eol=lf
+*.bash text eol=lf
+
+# Keep this file itself LF so the rules are parsed identically everywhere.
+.gitattributes text eol=lf
+
+# The Rust sources and the Python package are indifferent, but pinning them keeps
+# diffs stable when a file moves between machines.
+*.rs text eol=lf
+*.py text eol=lf
+*.json text eol=lf
+*.md text eol=lf
