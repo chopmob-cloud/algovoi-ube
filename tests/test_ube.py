@@ -264,3 +264,33 @@ def test_a_short_chain_fails_audit():
     report = run_all(events=[])
     assert not report.passed
     assert any(c.ident == "T-4.1" for c in report.failures)
+
+
+# ---- the resume checks ---------------------------------------------------
+
+
+def test_a_correct_resume_implementation_passes_the_new_checks():
+    from algovoi_ube.resume import WIRE_VALUES, decide_resume
+
+    report = run_all(decide_resume=decide_resume, wire_values=WIRE_VALUES)
+    assert report.passed, report.summary()
+    assert {c.ident for c in report.checks} == {"T-7.1", "T-7.2", "T-7.3", "T-7.4"}
+
+
+def test_a_permissive_resume_implementation_fails_them():
+    """An implementation that resumes on a signature alone must be caught."""
+
+    class Permissive:
+        allowed = True
+        wire_value = "resume"
+        reason = "signature verified"
+
+        def as_dict(self):
+            return {}
+
+    def decide_resume(**kwargs):
+        return Permissive()
+
+    report = run_all(decide_resume=decide_resume, wire_values=("allow", "deny", "pause", "resume", "revoked"))
+    assert not report.passed
+    assert "T-7.1" in {c.ident for c in report.failures}

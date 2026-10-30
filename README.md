@@ -55,7 +55,7 @@ than to a moment. `evidence/evidence.json` holds the same findings in machine
 readable form. Re-run the collector and either the same verdicts come out or the
 claim was wrong.
 
-Six findings, all currently confirmed:
+Ten findings, all currently confirmed:
 
 | ID | Finding | Verdict |
 | F1 | The published NTI-1 conformance chain recomputes exactly under its documented formula | confirmed |
@@ -64,6 +64,10 @@ Six findings, all currently confirmed:
 | F4 | `ube-foundation` is PolyForm Shield, so it cannot be vendored into an Apache-2.0 harness | confirmed |
 | F5 | Keystone fully answers 3 of 7 NTI-1 requirements, partly 2, not at all 2 | confirmed |
 | F6 | An `incomplete_check` cannot be built with an unclassified reason | confirmed |
+| F7 | The `REVERIFY` to `RESUMED` edge is declared and withdrawable without a terminal state | confirmed |
+| F8 | A valid signature alone does not reach RESUMED; a basis is required | confirmed |
+| F9 | An exemption covers a policy violation and cannot cover a revocation or an unknown | confirmed |
+| F10 | The wire value does not depend on the receipt being present | confirmed |
 
 The collector refutes its own claims when they do not hold. F2 was originally
 written one way, the collector refuted it, and the claim was tightened to what
@@ -114,6 +118,60 @@ choice costs.
 A mid-execution halt is only expressible under `EFFECT`. That is the whole
 trade, and a standard that does not name its boundary cannot be compared
 against another implementation of itself.
+
+## The resume basis, and the edge that was missing
+
+The thread's live question is what a resume should rest on. Signature verification
+is an authenticity check: it says who signed, not whether the condition that
+caused the halt still holds. If a valid signature is sufficient for RESUMED, then
+a run where the condition was verified restored and a run where someone accepted
+the risk produce identical records, and an auditor cannot tell them apart.
+
+`resume.py` implements the proposed answer: a resume carries a basis drawn from a
+closed set, `evidence` or `exemption`, with two boundaries that are the load
+bearing part.
+
+An exemption does not cover `authority_revoked`, because revocation is the issuing
+authority's decision and a manager on the executing side cannot un-revoke someone
+else's authority. An exemption does not cover `authority_not_determined`, because
+that is an absence of information and a signature cannot convert "we do not know"
+into "we know".
+
+Building this exposed a defect in our own state machine, which is finding F7. The
+`REVERIFY` to `RESUMED` transition was not declared in the transition table at
+all; `resume()` reached RESUMED by assigning the attribute directly, bypassing the
+table. So the one edge a governing regime needs to withdraw was the one edge the
+machine did not model, while the harness claimed to enforce only legal
+transitions. The edge is now declared, and an irreversible revocation withdraws it
+rather than inventing a terminal state, so the state space stays finite and
+enumerable.
+
+That defect is worth stating plainly because it is the useful part: publishing a
+harness that checks other implementations is easy to do while leaving a hole in
+the place the argument is actually about.
+
+## Validated on VM2
+
+The wheel is built and validated in a clean-room Docker container on VM2, with no
+network during install, so the artefact set has to be self sufficient. Twelve
+stages, all passing: offline install, import confirmed to resolve to the wheel
+rather than a staged source tree, 42 tests collected and 42 passing, the eleven
+check self test, the evidence findings re-derived from the installed wheel, sdist
+cleanliness, `pip check`, and no runtime dependencies.
+
+The negative control matters most. After a green run, the installed wheel is
+patched back to the old behaviour, removing the declared edge and restoring the
+direct assignment. Two tests fail, then the wheel is restored and the suite is
+green again. A harness that cannot be made to fail is not evidence of anything.
+
+```bash
+# reproduce
+scp dist/*.whl dist/*.tar.gz vm2:/root/ube-conformance/artefacts/
+scp -r tests vectors vm2:/root/ube-conformance/
+scp scripts/cleanroom.sh vm2:/root/ube-conformance/
+ssh vm2 'docker run -d --name ube-conformance-clean -v /root/ube-conformance:/work python:3.12-slim sleep infinity'
+ssh vm2 'docker exec ube-conformance-clean sh /work/cleanroom.sh'
+```
 
 ## Licence
 

@@ -290,6 +290,141 @@ def write_markdown(payload: dict) -> None:
     (EVIDENCE / "EVIDENCE.md").write_text("\n".join(lines), encoding="utf-8")
 
 
+def finding_resume_edge() -> dict:
+    """F7: is the REVERIFY to RESUMED edge declared, or performed by assignment?
+
+    This is the finding that came out of reading the thread against our own code.
+    The edge that expresses irreversibility was missing from the transition table
+    and was reached by writing the attribute directly, so the one transition a
+    governing regime needs to withdraw was the one transition the machine did not
+    model.
+    """
+    from algovoi_ube.failclosed import LEGAL, IllegalTransition, Lifecycle, State
+
+    declared = State.RESUMED in LEGAL.get(State.REVERIFY, set())
+
+    # Withdraw the edge and confirm resume refuses rather than assigning.
+    life = Lifecycle()
+    for state in (State.GATE_PASSED, State.ACTIVE, State.ANOMALY, State.PAUSE):
+        life.to(state)
+    refused = False
+    try:
+        life.resume(revocation_irreversible=True)
+    except IllegalTransition:
+        refused = life.state is State.REVERIFY
+
+    # And that no terminal state was invented to express it.
+    terminal_invented = hasattr(State, "REVOKED")
+
+    return {
+        "id": "F7",
+        "claim": "The REVERIFY to RESUMED edge is a declared transition and can be withdrawn without inventing a terminal state, so irreversibility lives in the missing edge rather than in a stuck label",
+        "method": "inspect the transition table, then attempt a resume under an irreversible revocation and confirm the chain stays in REVERIFY",
+        "edge_declared_in_table": declared,
+        "irreversible_revocation_withdraws_it": refused,
+        "terminal_state_invented": terminal_invented,
+        "state_space_size": len(list(State)),
+        "verdict": "confirmed" if declared and refused and not terminal_invented else "refuted",
+    }
+
+
+def finding_resume_basis() -> dict:
+    """F8: does a valid signature alone reach RESUMED?"""
+    from algovoi_ube.resume import BASES, WIRE_VALUES, Basis, RestoreEvidence, ResumeBasis, decide_resume
+
+    bare = decide_resume(signature_valid=True, basis=None)
+    on_evidence = decide_resume(
+        signature_valid=True,
+        basis=ResumeBasis(
+            basis=Basis.EVIDENCE.value,
+            evidence=RestoreEvidence(
+                conditions=["registry reports the policy satisfied"],
+                verifier_role="compliance-officer",
+                valid_until="2026-10-30T17:00:00Z",
+            ),
+        ),
+    )
+    revoked = decide_resume(
+        signature_valid=True,
+        basis=ResumeBasis(
+            basis=Basis.EVIDENCE.value,
+            delegation_id="d-42",
+            state_at_resume="REVOKED",
+            evidence=RestoreEvidence(
+                conditions=["condition restored"],
+                verifier_role="compliance-officer",
+                valid_until="2026-10-30T17:00:00Z",
+            ),
+        ),
+    )
+    return {
+        "id": "F8",
+        "claim": "A valid signature alone does not reach RESUMED; a resume has to carry a basis from a closed set, so a restored condition and an accepted risk cannot produce identical records",
+        "method": "decide_resume with no basis, with an evidence basis, and with a basis reporting a revoked delegation",
+        "closed_set": list(BASES),
+        "wire_values": list(WIRE_VALUES),
+        "signature_alone": {"allowed": bare.allowed, "wire_value": bare.wire_value},
+        "on_evidence": {"allowed": on_evidence.allowed, "wire_value": on_evidence.wire_value},
+        "revoked_delegation": {"allowed": revoked.allowed, "wire_value": revoked.wire_value},
+        "verdict": (
+            "confirmed"
+            if not bare.allowed and on_evidence.allowed and not revoked.allowed
+            else "refuted"
+        ),
+    }
+
+
+def finding_exemption_boundaries() -> dict:
+    """F9: can an exemption buy back a revocation or an unknown?"""
+    from algovoi_ube.resume import EXEMPTION_COVERS, EXEMPTION_DOES_NOT_COVER, Basis, ResumeBasis, ResumeRefused
+
+    attempted = []
+    for cause in ("authority_revoked", "authority_not_determined", "policy_violation"):
+        try:
+            basis = ResumeBasis(basis=Basis.EXEMPTION.value, covers=cause)
+            attempted.append({"covers": cause, "constructed": True, "receipt": basis.as_dict()})
+        except ResumeRefused as exc:
+            attempted.append({"covers": cause, "constructed": False, "refused_because": str(exc)})
+
+    refused_the_two = all(
+        not a["constructed"] for a in attempted if a["covers"] in EXEMPTION_DOES_NOT_COVER
+    )
+    allowed_the_one = all(
+        a["constructed"] for a in attempted if a["covers"] in EXEMPTION_COVERS
+    )
+    return {
+        "id": "F9",
+        "claim": "An exemption covers a policy violation and cannot cover a revocation or an undetermined authority, so a signed exemption cannot buy back the fail closed property",
+        "exemption_covers": list(EXEMPTION_COVERS),
+        "exemption_does_not_cover": list(EXEMPTION_DOES_NOT_COVER),
+        "attempts": attempted,
+        "verdict": "confirmed" if refused_the_two and allowed_the_one else "refuted",
+    }
+
+
+def finding_one_directional() -> dict:
+    """F10: does the wire value depend on the receipt being present?"""
+    from algovoi_ube.resume import WIRE_VALUES, decide_resume, wire_value_of
+
+    paused = decide_resume(signature_valid=True, basis=None)
+    with_receipt = wire_value_of(paused, with_receipt=True)
+    without_receipt = wire_value_of(paused, with_receipt=False)
+    return {
+        "id": "F10",
+        "claim": "The wire value does not depend on the receipt being present, so a PAUSE with no receipt is still a well formed record and the wire value set stays closed",
+        "wire_values": list(WIRE_VALUES),
+        "with_receipt": with_receipt,
+        "without_receipt": without_receipt,
+        "identical": with_receipt == without_receipt,
+        "in_closed_set": with_receipt in WIRE_VALUES,
+        "verdict": (
+            "confirmed"
+            if with_receipt == without_receipt and with_receipt in WIRE_VALUES
+            else "refuted"
+        ),
+    }
+
+
 def main(argv: list[str] | None = None) -> int:
     args = list(sys.argv[1:] if argv is None else argv)
     check_only = "--check" in args
@@ -302,6 +437,10 @@ def main(argv: list[str] | None = None) -> int:
         finding_licence(),
         finding_coverage(),
         finding_failclosed(),
+        finding_resume_edge(),
+        finding_resume_basis(),
+        finding_exemption_boundaries(),
+        finding_one_directional(),
     ]
 
     if check_only:

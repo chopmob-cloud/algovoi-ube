@@ -1,5 +1,5 @@
 {
-  "collected_at": "2026-10-29T18:30:36Z",
+  "collected_at": "2026-10-30T12:12:19Z",
   "tool": "algovoi-ube evidence collector",
   "environment": {
     "python": "3.12.10",
@@ -244,6 +244,103 @@
         }
       ],
       "all_illegal_refused": true,
+      "verdict": "confirmed"
+    },
+    {
+      "id": "F7",
+      "claim": "The REVERIFY to RESUMED edge is a declared transition and can be withdrawn without inventing a terminal state, so irreversibility lives in the missing edge rather than in a stuck label",
+      "method": "inspect the transition table, then attempt a resume under an irreversible revocation and confirm the chain stays in REVERIFY",
+      "edge_declared_in_table": true,
+      "irreversible_revocation_withdraws_it": true,
+      "terminal_state_invented": false,
+      "state_space_size": 8,
+      "verdict": "confirmed"
+    },
+    {
+      "id": "F8",
+      "claim": "A valid signature alone does not reach RESUMED; a resume has to carry a basis from a closed set, so a restored condition and an accepted risk cannot produce identical records",
+      "method": "decide_resume with no basis, with an evidence basis, and with a basis reporting a revoked delegation",
+      "closed_set": [
+        "evidence",
+        "exemption"
+      ],
+      "wire_values": [
+        "allow",
+        "deny",
+        "pause",
+        "resume",
+        "revoked"
+      ],
+      "signature_alone": {
+        "allowed": false,
+        "wire_value": "pause"
+      },
+      "on_evidence": {
+        "allowed": true,
+        "wire_value": "resume"
+      },
+      "revoked_delegation": {
+        "allowed": false,
+        "wire_value": "revoked"
+      },
+      "verdict": "confirmed"
+    },
+    {
+      "id": "F9",
+      "claim": "An exemption covers a policy violation and cannot cover a revocation or an undetermined authority, so a signed exemption cannot buy back the fail closed property",
+      "exemption_covers": [
+        "policy_violation"
+      ],
+      "exemption_does_not_cover": [
+        "authority_revoked",
+        "authority_not_determined"
+      ],
+      "attempts": [
+        {
+          "covers": "authority_revoked",
+          "constructed": false,
+          "refused_because": "exemption does not cover authority_revoked. Revocation is the issuing authority's decision; a manager on the executing side cannot un-revoke someone else's authority."
+        },
+        {
+          "covers": "authority_not_determined",
+          "constructed": false,
+          "refused_because": "exemption does not cover authority_not_determined. An absence of information is not a judgement about it; a signature cannot convert 'we do not know' into 'we know'."
+        },
+        {
+          "covers": "policy_violation",
+          "constructed": true,
+          "receipt": {
+            "resume_basis": "exemption",
+            "exemption_covers": [
+              "policy_violation"
+            ],
+            "exemption_does_not_cover": [
+              "authority_revoked",
+              "authority_not_determined"
+            ],
+            "exemption": {
+              "reason": "",
+              "actor": ""
+            }
+          }
+        }
+      ],
+      "verdict": "confirmed"
+    },
+    {
+      "id": "F10",
+      "claim": "The wire value does not depend on the receipt being present, so a PAUSE with no receipt is still a well formed record and the wire value set stays closed",
+      "wire_values": [
+        "allow",
+        "deny",
+        "pause",
+        "resume",
+        "revoked"
+      ],
+      "with_receipt": "pause",
+      "without_receipt": "pause",
+      "identical": true,
+      "in_closed_set": true,
       "verdict": "confirmed"
     }
   ]

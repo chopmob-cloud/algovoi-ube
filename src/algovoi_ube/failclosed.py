@@ -36,6 +36,11 @@ class State(str, Enum):
 
 # Only these transitions are legal. Anything else is a bug in the runtime, not
 # a policy choice.
+#
+# REVERIFY -> RESUMED is declared explicitly rather than performed by a direct
+# assignment. It is the edge that matters: where a governing regime makes a
+# revocation irreversible, what becomes unavailable is this transition, not a new
+# terminal state. Keeping it in the table is what makes that expressible.
 LEGAL = {
     State.REGISTERED: {State.GATE_PASSED},
     State.GATE_PASSED: {State.ACTIVE},
@@ -43,6 +48,7 @@ LEGAL = {
     State.ANOMALY: {State.PAUSE},
     State.PAUSE: {State.ROLLBACK},
     State.ROLLBACK: {State.REVERIFY},
+    State.REVERIFY: {State.RESUMED},
     State.RESUMED: {State.ANOMALY},
 }
 
@@ -159,6 +165,7 @@ class Lifecycle:
     def __init__(self, state: State = State.REGISTERED) -> None:
         self.state = state
         self.history: list[State] = [state]
+        self.receipt: dict = {}
 
     def to(self, new_state: State) -> State:
         allowed = LEGAL.get(self.state, set())
@@ -195,12 +202,42 @@ class Lifecycle:
             self.history.append(State.PAUSE)
         return self.state
 
-    def resume(self) -> State:
-        """PAUSE -> ROLLBACK -> REVERIFY -> RESUMED."""
+    def resume(self, basis=None, *, revocation_irreversible: bool = False) -> State:
+        """PAUSE -> ROLLBACK -> REVERIFY -> RESUMED.
+
+        The last hop goes through the table like every other transition, so an
+        undeclared edge is refused rather than assumed.
+
+        ``revocation_irreversible`` models the case where a governing regime
+        makes revocation final (eIDAS Art. 28(4) is the instance in scope). What
+        becomes unavailable is the REVERIFY -> RESUMED edge, and the chain stays
+        in REVERIFY. No lawful successor reaches RESUMED, and no extra state was
+        needed to say so.
+
+        ``basis`` is the resume basis from :mod:`algovoi_ube.resume`. When one is
+        supplied it is enforced here, so a resume cannot bypass it by calling the
+        lifecycle directly.
+        """
         if self.state is not State.PAUSE:
             raise IllegalTransition(f"cannot resume from {self.state.value}")
         self.to(State.ROLLBACK)
         self.to(State.REVERIFY)
-        self.state = State.RESUMED
-        self.history.append(State.RESUMED)
+
+        if revocation_irreversible:
+            raise IllegalTransition(
+                "REVERIFY -> RESUMED is unavailable: the revocation is final under "
+                "the governing regime, so the chain remains in REVERIFY"
+            )
+
+        if basis is not None:
+            from .resume import decide_resume
+
+            decision = decide_resume(signature_valid=True, basis=basis)
+            if not decision.allowed:
+                raise IllegalTransition(
+                    f"resume refused on basis: {decision.reason}"
+                )
+            self.receipt = decision.receipt
+
+        self.to(State.RESUMED)
         return self.state

@@ -99,11 +99,15 @@ def self_test() -> int:
     print("=== harness self test ===")
     events = _self_test_events()
     reloaded = _self_test_events()
+    from .resume import WIRE_VALUES, decide_resume
+
     report = run_all(
         decide=_self_test_decide,
         events=events,
         reload_events=lambda: reloaded,
         resolve_status=_failing_resolver,
+        decide_resume=decide_resume,
+        wire_values=WIRE_VALUES,
     )
     for check in report.checks:
         mark = "pass" if check.passed else "FAIL"
@@ -122,7 +126,23 @@ def self_test() -> int:
     print(f"  LGD halt path: {'pass' if ok else 'FAIL'} "
           f"({' -> '.join(s.value for s in lifecycle.history)})")
 
-    return 0 if report.passed and ok else 1
+    # The resume edge, and the two exemption boundaries.
+    from .failclosed import IllegalTransition, LEGAL
+
+    edge_declared = State.RESUMED in LEGAL.get(State.REVERIFY, set())
+    print(f"  REVERIFY -> RESUMED declared in the table: "
+          f"{'pass' if edge_declared else 'FAIL'}")
+
+    probe = _lifecycle_probe()
+    withdrawn = False
+    try:
+        probe.resume(revocation_irreversible=True)
+    except IllegalTransition:
+        withdrawn = probe.state is State.REVERIFY
+    print(f"  irreversible revocation withdraws the edge: "
+          f"{'pass' if withdrawn else 'FAIL'}")
+
+    return 0 if report.passed and ok and edge_declared and withdrawn else 1
 
 
 def probe_target(base_url: str, timeout: int = 20) -> int:

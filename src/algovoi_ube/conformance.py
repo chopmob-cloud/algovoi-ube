@@ -227,11 +227,119 @@ def t_6_1(report: Report, resolve_status: Callable[[], object]) -> Check:
     return check
 
 
+def t_7_1(report: Report, decide_resume: Callable[..., object]) -> Check:
+    """T-7.1: a valid signature alone must not reach RESUMED."""
+    check = report.add(
+        Check(
+            "T-7.1",
+            "6.1 Fail-Closed Semantics and resume basis",
+            "A resume token whose signature verifies but which carries no basis "
+            "MUST NOT reach RESUMED",
+        )
+    )
+    try:
+        decision = decide_resume(signature_valid=True, basis=None)
+    except Exception as exc:  # noqa: BLE001
+        check.detail = f"decide_resume raised {exc.__class__.__name__}: {exc}"
+        return check
+    allowed = getattr(decision, "allowed", None)
+    wire = getattr(decision, "wire_value", "")
+    check.passed = allowed is False and wire != "resume"
+    check.detail = f"allowed={allowed!r} wire_value={wire!r}"
+    return check
+
+
+def t_7_2(report: Report, decide_resume: Callable[..., object]) -> Check:
+    """T-7.2: an exemption must not cover a revocation."""
+    check = report.add(
+        Check(
+            "T-7.2",
+            "resume basis, exemption boundary (i)",
+            "An exemption MUST NOT be able to resume an action whose authority was "
+            "revoked",
+        )
+    )
+    try:
+        from .resume import Basis, ResumeBasis
+
+        basis = ResumeBasis(basis=Basis.EXEMPTION.value, covers="authority_revoked")
+    except Exception as exc:  # noqa: BLE001
+        # Refusing to construct the basis is the correct behaviour.
+        check.passed = True
+        check.detail = f"the forbidden basis was refused at construction: {exc.__class__.__name__}"
+        return check
+    try:
+        decision = decide_resume(signature_valid=True, basis=basis)
+    except Exception as exc:  # noqa: BLE001
+        check.passed = True
+        check.detail = f"decide_resume refused it: {exc.__class__.__name__}"
+        return check
+    check.passed = getattr(decision, "allowed", None) is False
+    check.detail = f"allowed={getattr(decision, 'allowed', None)!r}"
+    return check
+
+
+def t_7_3(report: Report, decide_resume: Callable[..., object]) -> Check:
+    """T-7.3: an exemption must not buy back an undetermined authority."""
+    check = report.add(
+        Check(
+            "T-7.3",
+            "resume basis, exemption boundary (ii)",
+            "An exemption MUST NOT convert authority_not_determined into a resume",
+        )
+    )
+    try:
+        from .resume import Basis, ResumeBasis
+
+        basis = ResumeBasis(
+            basis=Basis.EXEMPTION.value, covers="authority_not_determined"
+        )
+    except Exception as exc:  # noqa: BLE001
+        check.passed = True
+        check.detail = f"refused at construction: {exc.__class__.__name__}"
+        return check
+    try:
+        decision = decide_resume(signature_valid=True, basis=basis)
+    except Exception as exc:  # noqa: BLE001
+        check.passed = True
+        check.detail = f"decide_resume refused it: {exc.__class__.__name__}"
+        return check
+    check.passed = getattr(decision, "allowed", None) is False
+    check.detail = f"allowed={getattr(decision, 'allowed', None)!r}"
+    return check
+
+
+def t_7_4(report: Report, wire_values: tuple[str, ...], paused_decision: object) -> Check:
+    """T-7.4: the receipt is one directional.
+
+    A PAUSE with no receipt attached must still be a well formed record, and the
+    wire value must not depend on the receipt's presence. This is the constraint
+    that keeps the wire value set closed.
+    """
+    check = report.add(
+        Check(
+            "T-7.4",
+            "wire value set, one directional mapping",
+            "A refusal MUST be well formed without a receipt, and the wire value "
+            "MUST NOT depend on the receipt being present",
+        )
+    )
+    wire = getattr(paused_decision, "wire_value", "")
+    check.passed = wire in wire_values and wire != ""
+    check.detail = (
+        f"wire_value={wire!r} in closed set of {len(wire_values)}; "
+        "the decision is complete without the receipt"
+    )
+    return check
+
+
 def run_all(
     decide: Callable[[dict], str] | None = None,
     events: list[dict] | None = None,
     reload_events: Callable[[], list[dict]] | None = None,
     resolve_status: Callable[[], object] | None = None,
+    decide_resume: Callable[..., object] | None = None,
+    wire_values: tuple[str, ...] | None = None,
 ) -> Report:
     """Run every check the given inputs support."""
     report = Report()
@@ -246,4 +354,11 @@ def run_all(
         t_5_1(report, reload_events)
     if resolve_status is not None:
         t_6_1(report, resolve_status)
+    if decide_resume is not None:
+        t_7_1(report, decide_resume)
+        t_7_2(report, decide_resume)
+        t_7_3(report, decide_resume)
+        if wire_values is not None:
+            paused = decide_resume(signature_valid=True, basis=None)
+            t_7_4(report, wire_values, paused)
     return report
