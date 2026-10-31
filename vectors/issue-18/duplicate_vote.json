@@ -1,0 +1,35 @@
+{
+  "note": "Section 3.3: no duplicate votes. Three votes from one voter_id MUST NOT meet threshold 3.",
+  "request": {
+    "action": "transfer_funds",
+    "multi_agent": true,
+    "threshold": 3,
+    "votes": [
+      {
+        "voter_id": "a",
+        "request_id": "q",
+        "decision": "Allow",
+        "outcome_hash": "h",
+        "signature": "s"
+      },
+      {
+        "voter_id": "a",
+        "request_id": "q",
+        "decision": "Allow",
+        "outcome_hash": "h",
+        "signature": "s"
+      },
+      {
+        "voter_id": "a",
+        "request_id": "q",
+        "decision": "Allow",
+        "outcome_hash": "h",
+        "signature": "s"
+      }
+    ]
+  },
+  "expected": {
+    "decision": "Deny",
+    "reason": "duplicate voter_id does not satisfy threshold"
+  }
+}

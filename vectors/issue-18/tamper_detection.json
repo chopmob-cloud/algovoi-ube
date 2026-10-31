@@ -1,0 +1,71 @@
+{
+  "note": "Editing any past event MUST fail verification.",
+  "valid_chain": [
+    {
+      "event_id": "evt-1",
+      "agent_id": "agent-001",
+      "request_hash": "0000000000000000000000000000000000000000000000000000000000000000",
+      "decision": "Allow",
+      "reason": "action 1",
+      "timestamp": "2026-02-01T12:00:00Z",
+      "parent_hash": "0000000000000000000000000000000000000000000000000000000000000000",
+      "event_hash": "af94bdcf11c26b61ec45d78f6dacffdf2fdcc7c14ef962a66ec95e6e7a7e05ce"
+    },
+    {
+      "event_id": "evt-2",
+      "agent_id": "agent-001",
+      "request_hash": "0000000000000000000000000000000000000000000000000000000000000001",
+      "decision": "Allow",
+      "reason": "action 2",
+      "timestamp": "2026-02-01T12:00:00Z",
+      "parent_hash": "af94bdcf11c26b61ec45d78f6dacffdf2fdcc7c14ef962a66ec95e6e7a7e05ce",
+      "event_hash": "6a53ad07d4c88ac7fc45b77f35959aaf9afba14028c5c145def0c117b84b6bb9"
+    },
+    {
+      "event_id": "evt-3",
+      "agent_id": "agent-001",
+      "request_hash": "0000000000000000000000000000000000000000000000000000000000000002",
+      "decision": "Allow",
+      "reason": "action 3",
+      "timestamp": "2026-02-01T12:00:00Z",
+      "parent_hash": "6a53ad07d4c88ac7fc45b77f35959aaf9afba14028c5c145def0c117b84b6bb9",
+      "event_hash": "d11ba2d4f30249903ce19aac42b424146e15ce3c55889fdc93379444352469a9"
+    }
+  ],
+  "tampered_chain": [
+    {
+      "event_id": "evt-1",
+      "agent_id": "agent-001",
+      "request_hash": "0000000000000000000000000000000000000000000000000000000000000000",
+      "decision": "Deny",
+      "reason": "action 1",
+      "timestamp": "2026-02-01T12:00:00Z",
+      "parent_hash": "0000000000000000000000000000000000000000000000000000000000000000",
+      "event_hash": "af94bdcf11c26b61ec45d78f6dacffdf2fdcc7c14ef962a66ec95e6e7a7e05ce"
+    },
+    {
+      "event_id": "evt-2",
+      "agent_id": "agent-001",
+      "request_hash": "0000000000000000000000000000000000000000000000000000000000000001",
+      "decision": "Allow",
+      "reason": "action 2",
+      "timestamp": "2026-02-01T12:00:00Z",
+      "parent_hash": "af94bdcf11c26b61ec45d78f6dacffdf2fdcc7c14ef962a66ec95e6e7a7e05ce",
+      "event_hash": "6a53ad07d4c88ac7fc45b77f35959aaf9afba14028c5c145def0c117b84b6bb9"
+    },
+    {
+      "event_id": "evt-3",
+      "agent_id": "agent-001",
+      "request_hash": "0000000000000000000000000000000000000000000000000000000000000002",
+      "decision": "Allow",
+      "reason": "action 3",
+      "timestamp": "2026-02-01T12:00:00Z",
+      "parent_hash": "6a53ad07d4c88ac7fc45b77f35959aaf9afba14028c5c145def0c117b84b6bb9",
+      "event_hash": "d11ba2d4f30249903ce19aac42b424146e15ce3c55889fdc93379444352469a9"
+    }
+  ],
+  "expected": {
+    "valid_verifies": true,
+    "tampered_verifies": false
+  }
+}

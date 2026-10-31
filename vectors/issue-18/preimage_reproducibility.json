@@ -1,0 +1,30 @@
+{
+  "note": "event_hash preimage MUST be RFC 8785 (JCS) canonical JSON over the ordered field set, not a delimiter join. hash = SHA-256(JCS bytes).",
+  "event": {
+    "event_id": "evt-1",
+    "agent_id": "agent-001",
+    "request_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "decision": "Allow",
+    "reason": "permitted under cap-x",
+    "timestamp": "2026-02-01T12:00:00Z",
+    "parent_hash": "0000000000000000000000000000000000000000000000000000000000000000"
+  },
+  "jcs_canonical": "{\"agent_id\":\"agent-001\",\"decision\":\"Allow\",\"event_id\":\"evt-1\",\"parent_hash\":\"0000000000000000000000000000000000000000000000000000000000000000\",\"reason\":\"permitted under cap-x\",\"request_hash\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"timestamp\":\"2026-02-01T12:00:00Z\"}",
+  "event_hash_sha256": "38eb5c7aabf133c8243fe60732694adcc4bd1880a90edf101920517603f4b12f",
+  "delimiter_collision": {
+    "a": {
+      "decision": "Allow",
+      "reason": "x:y"
+    },
+    "b": {
+      "decision": "Allow:x",
+      "reason": "y"
+    },
+    "colon_join_a": "Allow:x:y",
+    "colon_join_b": "Allow:x:y",
+    "colon_join_collides": true,
+    "jcs_a": "{\"decision\":\"Allow\",\"reason\":\"x:y\"}",
+    "jcs_b": "{\"decision\":\"Allow:x\",\"reason\":\"y\"}",
+    "jcs_collides": false
+  }
+}
