@@ -252,9 +252,11 @@ def probe_target(base_url: str, timeout: int = 20) -> int:
             payload = json.loads(response.read().decode("utf-8", "replace"))
         return str(payload.get("decision") or payload.get("verdict") or "")
 
-    report = Report()
     try:
-        run_all(decide=decide, events=None)
+        # Grade the report run_all actually produced. Building a fresh empty
+        # Report() and discarding the return made target mode a rubber stamp:
+        # all([]) is True, so it exited 0 whatever the target answered.
+        report = run_all(decide=decide, events=None)
     except urllib.error.URLError as exc:
         print(f"  target unreachable: {exc}")
         return 2
@@ -262,7 +264,10 @@ def probe_target(base_url: str, timeout: int = 20) -> int:
     for check in report.checks:
         mark = "pass" if check.passed else "FAIL"
         print(f"  {check.ident:7s} {mark:5s} {check.detail}")
-    print(f"\n  {report.summary()}")
+    # Remote mode drives only the decision-endpoint checks (T-1.1/2.1/3.1/3.2);
+    # audit-chain, fail-closed, VOC, signature, registry and mandate checks need
+    # local inputs and are exercised by `selftest`, not against a live target.
+    print(f"\n  {report.summary()} (decision-endpoint checks only)")
     return 0 if report.passed else 1
 
 

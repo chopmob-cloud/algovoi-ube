@@ -254,3 +254,20 @@ def test_a_grader_cannot_exempt_outside_its_mandate_and_resume_anyway():
             reason="please", delegation_id="d", principal_id="principal-acme",
             valid_until="2026-10-30T18:00:00Z",
         )
+
+
+def test_mandate_time_compare_handles_offsets_not_lexicographically():
+    """Finding 3: `now > self.not_after` on raw strings mis-orders a +hh:mm
+    offset. now = 12:00+05:00 is 07:00Z, before a 09:00Z not_after, so the
+    mandate has NOT lapsed, even though the raw strings sort the other way.
+    """
+    m = mandate(not_after="2026-10-30T09:00:00Z")
+    ok, reason = sign(m, now="2026-10-30T12:00:00+05:00")  # 07:00Z, still valid
+    assert ok, reason
+    assert "lapsed" not in reason
+    # A genuinely later instant is still refused.
+    expired_ok, expired_reason = sign(m, now="2026-10-30T12:00:00Z")
+    assert not expired_ok and "lapsed" in expired_reason
+    # An unreadable instant fails closed rather than passing.
+    bad_ok, bad_reason = sign(m, now="not-a-timestamp")
+    assert not bad_ok and "could not be read" in bad_reason

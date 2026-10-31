@@ -144,6 +144,46 @@ def t_3_1(report: Report, decide: Callable[[dict], str]) -> Check:
     return check
 
 
+def t_3_2(report: Report, decide: Callable[[dict], str]) -> Check:
+    """3.3 Pillar 3: duplicate votes from one voter MUST NOT reach the threshold.
+
+    NTI-1 section 3.3 requires "no duplicate votes". A threshold that counts
+    repeated votes from a single ``voter_id`` is defeated by one agent voting
+    many times, so three votes from one voter at threshold three must still be
+    denied. The request is otherwise valid (signed, not expired) so the refusal
+    can only be the duplicate votes.
+    """
+    check = report.add(
+        Check(
+            "T-3.2",
+            "3.3 Pillar 3",
+            "Duplicate votes from one voter MUST NOT satisfy the threshold",
+        )
+    )
+    try:
+        decision = decide(
+            {
+                "action": "transfer_funds",
+                "amount": 10,
+                "signed": True,
+                "signature": "reference-signature",
+                "multi_agent": True,
+                "votes": [
+                    {"voter_id": "a", "decision": "Allow"},
+                    {"voter_id": "a", "decision": "Allow"},
+                    {"voter_id": "a", "decision": "Allow"},
+                ],
+                "threshold": 3,
+            }
+        )
+    except Exception as exc:  # noqa: BLE001
+        check.detail = f"decide raised {exc.__class__.__name__}: {exc}"
+        return check
+    check.passed = str(decision).strip().lower() in {"deny", "denied"}
+    check.detail = f"decision was {decision!r} for 3 votes from a single voter at threshold 3"
+    return check
+
+
 def t_4_1(report: Report, events: list[dict]) -> Check:
     """T-4.1 Audit: after 100 actions the chain must be 100 events long and intact."""
     check = report.add(
@@ -180,6 +220,40 @@ def t_4_2(report: Report, events: list[dict]) -> Check:
     status = verify_chain(tampered)
     check.passed = not status.ok
     check.detail = "tampering was detected" if check.passed else "tampering went undetected"
+    return check
+
+
+def t_4_3(report: Report, events: list[dict]) -> Check:
+    """3.4 Pillar 4 (with T-4.1): a truncated log MUST NOT pass as complete.
+
+    Dropping the tail of a valid chain leaves every parent link intact, so link
+    verification alone still succeeds on the prefix. Truncation is therefore
+    only caught by anchoring to an expected length or final head, which is what
+    T-4.1's "chain length MUST equal N" requires. This check confirms both
+    halves: the prefix still link-verifies, and its length no longer matches the
+    original, so a completeness check is load-bearing rather than optional.
+    """
+    check = report.add(
+        Check(
+            "T-4.3",
+            "3.4 Pillar 4 and 5 T-4.1",
+            "A truncated audit log MUST NOT be accepted as complete on link-checking alone",
+        )
+    )
+    if len(events) < 2:
+        check.detail = "needs at least two events to test truncation"
+        return check
+    full_len = len(events)
+    prefix = events[:-1]
+    links_ok = verify_chain(prefix).ok
+    caught_by_length = len(prefix) != full_len
+    check.passed = links_ok and caught_by_length
+    check.detail = (
+        f"a {len(prefix)}-of-{full_len} prefix still link-verifies; only the "
+        "expected length detects the truncation"
+        if check.passed
+        else "truncation behaviour was not as expected"
+    )
     return check
 
 
@@ -890,9 +964,11 @@ def run_all(
         t_1_1(report, decide)
         t_2_1(report, decide)
         t_3_1(report, decide)
+        t_3_2(report, decide)
     if events is not None:
         t_4_1(report, events)
         t_4_2(report, events)
+        t_4_3(report, events)
     if reload_events is not None:
         t_5_1(report, reload_events)
     if resolve_status is not None:

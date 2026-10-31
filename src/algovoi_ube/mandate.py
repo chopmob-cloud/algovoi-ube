@@ -172,7 +172,17 @@ class GraderMandate:
         """
         if grader_id != self.grader_id:
             return False, f"the mandate is for {self.grader_id}, not {grader_id}"
-        if now > self.not_after:
+        # Compare as parsed instants, not raw strings. A lexicographic ">" is
+        # only correct when both sides are identically formatted UTC ("...Z");
+        # a "+hh:mm" offset would sort wrong. resume.py and voc.py already parse,
+        # so the mandate does too, and an unreadable instant fails closed.
+        from .resume import _parse_instant
+
+        now_dt = _parse_instant(now)
+        exp_dt = _parse_instant(self.not_after)
+        if now_dt is None or exp_dt is None:
+            return False, "the mandate's validity window could not be read"
+        if now_dt > exp_dt:
             return False, f"the mandate lapsed at {self.not_after}"
         if policy_id not in self.policies:
             return False, f"{policy_id} is outside the mandate's scope"

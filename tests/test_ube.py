@@ -245,7 +245,7 @@ def test_a_correct_implementation_passes_the_decision_checks():
 def test_a_permissive_implementation_fails_them():
     report = run_all(decide=bad_decide)
     assert not report.passed
-    assert {c.ident for c in report.failures} == {"T-1.1", "T-2.1", "T-3.1"}
+    assert {c.ident for c in report.failures} == {"T-1.1", "T-2.1", "T-3.1", "T-3.2"}
 
 
 def test_a_hundred_event_chain_passes_audit():
@@ -369,3 +369,71 @@ def test_a_rubber_stamp_voc_implementation_fails():
     assert not report.passed
     failed = {c.ident for c in report.failures}
     assert {"T-8.1", "T-8.2", "T-8.3", "T-8.4"} <= failed, failed
+
+
+# ---- fixes from the security sweep + issue #18 coverage ------------------
+
+
+def test_target_mode_grades_the_real_report(monkeypatch):
+    """Finding 1: probe_target used to grade a fresh empty Report() and discard
+    run_all()'s return, so it exited 0 for any target. A permissive target
+    (always Allow) must now make it exit non-zero.
+    """
+    import json as _json
+    from algovoi_ube import runner
+
+    class _Resp:
+        def __init__(self, body: bytes) -> None:
+            self._b = body
+
+        def read(self) -> bytes:
+            return self._b
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+    def fake_urlopen(req, timeout=20):
+        return _Resp(_json.dumps({"decision": "Allow"}).encode())
+
+    monkeypatch.setattr(runner.urllib.request, "urlopen", fake_urlopen)
+    assert runner.probe_target("http://example.invalid") == 1
+
+
+def test_duplicate_votes_fail_t_3_2_and_a_correct_engine_passes():
+    """Issue #18 item 5: duplicate votes must not satisfy the threshold."""
+    def counts_duplicates(request: dict) -> str:
+        if not request.get("signed"):
+            return "Deny"
+        if request.get("multi_agent"):
+            votes = request.get("votes") or []  # raw count, no dedupe by voter
+            if len(votes) < request.get("threshold", 1):
+                return "Deny"
+        return "Allow"
+
+    assert "T-3.2" in {c.ident for c in run_all(decide=counts_duplicates).failures}
+    assert "T-3.2" not in {c.ident for c in run_all(decide=good_decide).failures}
+
+
+def test_truncation_check_passes_on_a_valid_chain():
+    """Issue #18 item 5: a truncated prefix still link-verifies, so completeness
+    is caught only by the expected length. T-4.3 asserts both halves.
+    """
+    from algovoi_ube.chain import event_hash as eh
+
+    events, parent = [], GENESIS
+    for i in range(5):
+        ev = {
+            "event_id": f"e{i}", "agent_id": "a", "request_hash": f"{i:064x}",
+            "decision": "Allow", "reason": "test",
+            "timestamp": "2026-10-29T00:00:00Z", "parent_hash": parent,
+        }
+        ev["event_hash"] = eh(ev)
+        parent = ev["event_hash"]
+        events.append(ev)
+
+    report = run_all(events=events, reload_events=lambda: events)
+    t43 = next(c for c in report.checks if c.ident == "T-4.3")
+    assert t43.passed, t43.detail
