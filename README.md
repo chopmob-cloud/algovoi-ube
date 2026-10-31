@@ -21,7 +21,12 @@ Seven things, all of them checkable:
    recomputes every hash and every parent link from the raw event data.
 2. **Runs the testable requirements**, T-1.1 through T-5.1 plus the resume,
    VOC, signature and registry checks added here, each quoting the clause it
-   comes from. A failure points at the document, not an opinion.
+   comes from. A failure points at the document, not an opinion. This includes a
+   duplicate-vote check (one voter cannot meet a threshold by voting more than
+   once) and a truncation check (a shortened log is caught by its expected
+   length, since link-checking alone passes a valid prefix). `target` mode grades
+   the decision-endpoint checks against a live implementation; the rest need
+   local inputs and run under `selftest`.
 3. **Implements the fail-closed rule** from section 6.1, including the
    `incomplete_check` receipt with its three legal reasons, and the LGD state
    machine with only legal transitions allowed.
