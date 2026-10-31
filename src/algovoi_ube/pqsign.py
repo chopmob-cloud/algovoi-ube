@@ -57,6 +57,19 @@ SIGNING_KEY_BYTES = 4896
 SEED_BYTES = 32
 
 
+_HEX_DIGITS = frozenset("0123456789abcdefABCDEF")
+
+
+def _is_hex(value: str) -> bool:
+    """True only for a non-empty string of hex digits.
+
+    The core's line protocol takes hex arguments, so this is also the guard that
+    keeps a newline (or any other character) in a caller-supplied signature from
+    injecting a second request into the stream.
+    """
+    return bool(value) and all(c in _HEX_DIGITS for c in value)
+
+
 class SignerUnavailable(RuntimeError):
     """The signing core could not be reached or refused an operation."""
 
@@ -210,6 +223,13 @@ class Dilithium5Signer:
     def _call(self, command: str) -> str:
         if self._process is None or self._process.stdin is None:
             raise SignerUnavailable("the signing core is not running")
+        if "\n" in command or "\r" in command:
+            # The core speaks one line per request and answers one line. A
+            # newline in an argument would inject a second request whose answer
+            # is then left queued, so the next call reads a stale line and a
+            # mismatched payload can verify true. Refuse it at the boundary;
+            # every caller already passes hex, which cannot contain a newline.
+            raise SignerUnavailable("a signer command must be a single line")
         try:
             self._process.stdin.write(command + "\n")
             self._process.stdin.flush()
@@ -247,18 +267,31 @@ class Dilithium5Signer:
         """
         import hashlib
 
+        if not payload:
+            # The digest path must honour the same "no signature over nothing"
+            # rule the core enforces for sign(): sha256(b"") is a valid digest,
+            # so without this guard an empty receipt would sign and verify.
+            raise SignerUnavailable("sign_digest needs a non-empty payload")
         digest = hashlib.sha256(payload).digest()
         return "sha256:" + self._call(f"sign {digest.hex()}")
 
     def verify_digest(self, payload: bytes, signature: str) -> bool:
         import hashlib
 
+        if not payload:
+            return False
         if not signature.startswith("sha256:"):
             return False
         digest = hashlib.sha256(payload).digest()
         return self.verify(digest, signature[len("sha256:") :])
 
     def verify(self, payload: bytes, signature_hex: str) -> bool:
+        if not _is_hex(signature_hex):
+            # A signature is attacker-influenced data crossing a trust boundary.
+            # Anything that is not pure hex cannot be a signature, and letting a
+            # newline or space through here is what desynchronises the core's
+            # one-line protocol. A malformed signature verifies as false.
+            return False
         answer = self._call(f"verify {payload.hex()} {signature_hex}")
         return answer.strip().lower() == "true"
 

@@ -116,3 +116,52 @@ def test_the_fingerprint_pins_the_key():
         fingerprint = signer.fingerprint()
         assert len(fingerprint) == 64
         assert all(c in "0123456789abcdef" for c in fingerprint)
+
+
+def test_verify_rejects_a_non_hex_signature():
+    """A signature is attacker-influenced; anything but hex cannot be one."""
+    with Dilithium5Signer() as signer:
+        signature = signer.sign(b"payload")
+        assert signer.verify(b"payload", signature) is True
+        assert signer.verify(b"payload", signature + " ") is False
+        assert signer.verify(b"payload", "nothex!!") is False
+        assert signer.verify(b"payload", "") is False
+
+
+def test_a_newline_in_the_signature_cannot_desync_the_core():
+    """Finding A: a newline in the signature argument used to inject a second
+    ``verify`` whose queued ``ok true`` was read by the NEXT call, so a
+    mismatched payload verified true. The hex guard must stop that, and a later
+    legitimate verify of a wrong payload must stay false.
+    """
+    with Dilithium5Signer() as signer:
+        payload = b"payload"
+        signature = signer.sign(payload)
+        injected = signature + "\nverify " + payload.hex() + " " + signature
+        assert signer.verify(b"bad", injected) is False
+        # The stream must not be desynced: a subsequent verify of a wrong
+        # payload is still false, not a stale queued "true".
+        assert signer.verify(b"bad", signature) is False
+        # And the genuine pairing still verifies.
+        assert signer.verify(payload, signature) is True
+
+
+def test_call_refuses_a_multiline_command():
+    with Dilithium5Signer() as signer:
+        with pytest.raises(SignerUnavailable):
+            signer._call("verify deadbeef\nverify cafe")
+
+
+def test_the_digest_path_also_refuses_an_empty_payload():
+    """Finding C: sign() refuses empty bytes, but sign_digest(b"") used to sign
+    sha256(b"") and verify_digest(b"", sig) returned true, reintroducing the
+    "signature over nothing" the direct path forbids.
+    """
+    with Dilithium5Signer() as signer:
+        with pytest.raises(SignerUnavailable):
+            signer.sign(b"")
+        with pytest.raises(SignerUnavailable):
+            signer.sign_digest(b"")
+        real = signer.sign_digest(b"a real receipt body")
+        assert signer.verify_digest(b"a real receipt body", real) is True
+        assert signer.verify_digest(b"", real) is False
