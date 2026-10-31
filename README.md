@@ -27,7 +27,9 @@ Seven things, all of them checkable:
    machine with only legal transitions allowed.
 4. **Signs with the mandated scheme.** CRYSTALS-Dilithium5 as ML-DSA-87, in a
    separate Rust process, so the key never enters the process that assembles the
-   receipt.
+   receipt. The process speaks a single-line hex protocol, and the client
+   validates every argument is hex before sending, so a signature field carrying
+   a newline cannot inject a second request or desynchronise the stream.
 5. **Implements the revocation registry** as a Merkle accumulator whose root
    changes on revocation, so a token proved against an old root is refused at the
    boundary.
@@ -74,6 +76,15 @@ the container command for an older toolchain.
 When that binary is absent every signing path raises. There is no fallback to a
 weaker signer, because a silent downgrade of the signature is a silent downgrade
 of the whole claim.
+
+The client that drives the core treats its inputs as untrusted. A signature is
+attacker-influenced data, so `verify` refuses anything that is not pure hex
+rather than passing it to the core, and the digest path refuses an empty payload
+exactly as the direct `sign` path does, so the "no signature over nothing" rule
+holds on both. These are checked by the test suite and by an independent
+clean-room probe, and were tightened after a security cross-check on the running
+code found that an unchecked newline in a signature could otherwise be made to
+desynchronise the single-line protocol.
 
 ## The evidence
 
