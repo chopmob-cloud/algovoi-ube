@@ -437,3 +437,14 @@ def test_truncation_check_passes_on_a_valid_chain():
     report = run_all(events=events, reload_events=lambda: events)
     t43 = next(c for c in report.checks if c.ident == "T-4.3")
     assert t43.passed, t43.detail
+
+
+def test_a_deny_all_implementation_fails_the_positive_control():
+    """A target that denies everything passes the negative checks but must fail
+    the positive control, so the suite cannot green-light a useless engine."""
+    def deny_all(request: dict) -> str:
+        return "Deny"
+
+    report = run_all(decide=deny_all)
+    assert "P-1" in {c.ident for c in report.failures}
+    assert "P-1" not in {c.ident for c in run_all(decide=good_decide).failures}

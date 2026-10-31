@@ -184,6 +184,39 @@ def t_3_2(report: Report, decide: Callable[[dict], str]) -> Check:
     return check
 
 
+def positive_control(report: Report, decide: Callable[[dict], str]) -> Check:
+    """A fully valid request MUST be allowed.
+
+    Every other decision check requires a Deny, so an implementation that denies
+    everything would pass them all while doing nothing useful. This is the
+    positive control: a signed, unexpired, single-agent request with no failing
+    condition must come back Allow, so a deny-all engine fails here rather than
+    being waved through.
+    """
+    check = report.add(
+        Check(
+            "P-1",
+            "positive control",
+            "A valid request MUST be allowed, so a deny-all implementation does not pass",
+        )
+    )
+    try:
+        decision = decide(
+            {
+                "action": "transfer_funds",
+                "amount": 10,
+                "signed": True,
+                "signature": "reference-signature",
+            }
+        )
+    except Exception as exc:  # noqa: BLE001
+        check.detail = f"decide raised {exc.__class__.__name__}: {exc}"
+        return check
+    check.passed = str(decision).strip().lower() in {"allow", "allowed"}
+    check.detail = f"decision was {decision!r} for a fully valid request"
+    return check
+
+
 def t_4_1(report: Report, events: list[dict]) -> Check:
     """T-4.1 Audit: after 100 actions the chain must be 100 events long and intact."""
     check = report.add(
@@ -961,6 +994,7 @@ def run_all(
     """Run every check the given inputs support."""
     report = Report()
     if decide is not None:
+        positive_control(report, decide)
         t_1_1(report, decide)
         t_2_1(report, decide)
         t_3_1(report, decide)

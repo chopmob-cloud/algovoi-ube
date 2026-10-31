@@ -271,3 +271,6 @@ def test_mandate_time_compare_handles_offsets_not_lexicographically():
     # An unreadable instant fails closed rather than passing.
     bad_ok, bad_reason = sign(m, now="not-a-timestamp")
     assert not bad_ok and "could not be read" in bad_reason
+    # A non-string instant must refuse, not raise.
+    num_ok, num_reason = sign(m, now=123)
+    assert not num_ok and "could not be read" in num_reason

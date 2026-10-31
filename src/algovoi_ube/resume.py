@@ -213,7 +213,9 @@ class ResumeDecision:
 
 def _parse_instant(value: str):
     """Parse an ISO 8601 instant, or None when it cannot be read."""
-    if not value:
+    if not isinstance(value, str) or not value:
+        # A non-string (or empty) instant is unreadable, not a crash: callers
+        # treat None as "refuse", which keeps the fail-closed contract.
         return None
     text = value.strip().replace("Z", "+00:00")
     try:
