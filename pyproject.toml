@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "algovoi-ube"
 version = "0.1.0"
-description = "Independent NTI-1 conformance harness: audit chain, fail-closed halt, ML-DSA signing core, Merkle revocation registry, and a Keystone coverage map"
+description = "Independent NTI-1 conformance harness and Layer 0 substrate: audit chain, fail-closed halt, ML-DSA signing core, Merkle revocation registry, and a Keystone coverage map"
 readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "Apache-2.0" }
@@ -27,6 +27,8 @@ dependencies = []
 
 [project.optional-dependencies]
 test = ["pytest>=7.4"]
+layer0 = ["pqcrypto>=0.4,<2", "jcs>=0.2"]
+layer0-test = ["pytest>=7.4", "pqcrypto>=0.4,<2", "jcs>=0.2"]
 
 [project.urls]
 Homepage = "https://docs.algovoi.co.uk/keystone"

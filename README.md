@@ -60,8 +60,20 @@ Or without installing:
 python conformance/run.py --self-test
 ```
 
-No Python runtime dependencies. The harness is stdlib only, so it runs anywhere
-Python 3.10 or newer does.
+No Python runtime dependencies for the base package. The harness is stdlib only,
+so it runs anywhere Python 3.10 or newer does.
+
+The optional `layer0` extra adds the NTI-1 Layer 0 cryptographic substrate
+(identity, governance, consensus, audit chain, and revocation) as a Python
+subpackage. It brings in `pqcrypto` and `jcs`, both Apache-2.0:
+
+```bash
+pip install "algovoi-ube[layer0]"
+```
+
+See `THIRD-PARTY-NOTICES` for full attribution. When the extra is absent the
+`algovoi_ube.layer0` subpackage is still importable but every top-level
+function raises `ImportError` with a clear install hint.
 
 The signature scheme is the exception, and it is deliberately not a Python
 package. NTI-1 mandates CRYSTALS-Dilithium5, and the AIW paper requires the key to
@@ -515,3 +527,7 @@ answer "who allowed this automation to say yes" without reading prose.
 
 Apache-2.0. The NTI-1 specification text is CC BY 4.0 and is not reproduced
 here; only small quoted fragments for clause references.
+
+The optional `[layer0]` extra depends on `pqcrypto` (Apache-2.0, Backbone
+Authors) and `jcs` (Apache-2.0, Titusz Pan), and transitively on `cffi`
+(MIT-0). Full attribution is in `THIRD-PARTY-NOTICES`.

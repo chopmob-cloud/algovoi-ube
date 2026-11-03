@@ -1,0 +1,60 @@
+THIRD-PARTY NOTICES
+===================
+
+This file documents third-party software used by the optional `layer0` extra
+(`pip install algovoi-ube[layer0]`). The base package has no runtime
+dependencies and this file is not relevant unless you install that extra.
+
+-------------------------------------------------------------------------------
+pqcrypto
+-------------------------------------------------------------------------------
+Package  : pqcrypto 0.4.x
+Purpose  : ML-DSA-87 (CRYSTALS-Dilithium5) key generation, signing, and
+           verification for the NTI-1 Layer 0 crypto engine.
+License  : Apache License, Version 2.0
+Author   : Backbone Authors <root@backbone.dev>
+Source   : https://github.com/backbone-hq/pqcrypto
+
+The full Apache-2.0 license text is reproduced in the LICENSE file at the root
+of this repository. pqcrypto links against liboqs; liboqs is MIT-licensed
+(https://github.com/open-quantum-safe/liboqs/blob/main/LICENSE.txt).
+
+-------------------------------------------------------------------------------
+jcs
+-------------------------------------------------------------------------------
+Package  : jcs 0.2.x
+Purpose  : RFC 8785 JSON Canonicalization Scheme used to produce tamper-evident
+           preimage bytes for signing and hash chaining.
+License  : Apache License, Version 2.0
+Author   : Titusz Pan <tp@py7.de>
+Source   : https://github.com/titusz/jcs
+
+The full Apache-2.0 license text is reproduced in the LICENSE file at the root
+of this repository.
+
+-------------------------------------------------------------------------------
+cffi (transitive dependency of pqcrypto)
+-------------------------------------------------------------------------------
+Package  : cffi 2.0.x
+Purpose  : C Foreign Function Interface; pulled in transitively by pqcrypto to
+           call the underlying liboqs C library. Not referenced directly by
+           algovoi-ube.
+License  : MIT No Attribution
+Author   : Armin Rigo, Maciej Fijalkowski and contributors
+Source   : https://cffi.readthedocs.io/
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so.
+
+-------------------------------------------------------------------------------
+NTI-1 specification
+-------------------------------------------------------------------------------
+The NTI-1 specification text (https://github.com/abisheakp197/nti-spec) is
+CC BY 4.0. It is not reproduced here; only small quoted fragments appear in
+comments for clause reference. AlgoVoi contributed to the specification via
+PR #26 (chopmob-cloud/crucible hardening-issue-18: JCS preimage fix, duplicate
+vote guard, truncation conformance).
