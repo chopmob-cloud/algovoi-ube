@@ -1,5 +1,8 @@
 # algovoi-ube
 
+
+[![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](./LICENSE)
+
 An independent, Apache-2.0 conformance harness for [NTI-1](https://github.com/abisheakp197/nti-spec),
 the Neutral Trust Infrastructure standard, plus a working coverage map showing
 how much of NTI-1 the [AlgoVoi Keystone](https://docs.algovoi.co.uk/keystone)
